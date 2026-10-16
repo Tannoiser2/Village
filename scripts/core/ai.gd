@@ -16,7 +16,7 @@ var W := {
 	"cocoa": 6.2, "tea": 5.4, "cube": 0.42, "green": 0.12, "coin": 1.0,
 	"farm_m": 1.1, "farm_extra": 0.35, "pool_m": 0.55, "craft_m": 1.4, "bag_m": 2.4, "inn_m": 0.8,
 	"time": 0.08, "next": 1.1, "harvest_syn": 1.4, "city_m": 1.4, "council_m": 0.6, "ship_item": 0.9,
-	"death_free": 2.2, "late": 0.6,
+	"death_free": 2.2, "late": 0.6, "rival": 0.3,
 }
 
 
@@ -316,7 +316,13 @@ func eval_move(st: VLState, p: int, mv: Dictionary) -> float:
 	# il segnalino del prossimo primo giocatore tolto agli altri
 	if c.next_owner == p and st.next_owner != p:
 		v += 0.4
-	# vuotare il tabellone fa partire la messa: vale qualcosa solo se abbiamo familiari nel sacchetto
+	# Difficile: guarda anche quanto la mossa toglie (o lascia) agli avversari
+	if level >= 2 and W["rival"] > 0.0:
+		var best_o := -INF
+		for o in c.n:
+			if o != p:
+				best_o = maxf(best_o, value(c, o))
+		v -= W["rival"] * best_o
 	return v
 
 

@@ -89,6 +89,16 @@ func _run() -> void:
 			done += 1
 	await wait(20)
 	await shot("decision")
+	var gg = gv()
+	if gg.pending.get("type", "") == "turn":
+		for m in gg.pending["moves"]:
+			if m["src"]["t"] == "space" and m["src"]["sp"] == "crafts":
+				gg._pick_src(m["src"])
+				break
+		await wait(10)
+		await shot("actions")
+		gg.wiz = {}
+		gg._show_decision()
 	var g2 = gv()
 	g2._toggle_flat()
 	await wait(30)

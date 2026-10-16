@@ -461,6 +461,8 @@ func _market(opener: int) -> void:
 		fx.emit("sale", {"seat": q})
 		await _deaths(q)
 	for q in order:
+		if barker.has(q):
+			continue
 		if st.has_card(q, "scrap") and not st.scrap_options().is_empty():
 			var so := st.scrap_options()
 			var c = await decide(q, {"type": "scrap", "options": so, "title": "Rigattiere: vuoi prendere gratis un cliente rimasto?"})

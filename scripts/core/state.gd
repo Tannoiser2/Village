@@ -1756,7 +1756,7 @@ func score_breakdown(p: int) -> Dictionary:
 						cards += 1
 			"peasant": cards += int(pl["grain"])
 			"manciple":
-				for g in D.GOODS:
+				for g in ["horse", "ox", "plow", "wagon", "scroll", "beer"]:
 					if int(pl["goods"][g]) > 0:
 						cards += 2
 	r["cards"] = cards

@@ -32,7 +32,7 @@ static func member(st: VLState, id: int) -> String:
 static func src_text(src: Dictionary) -> String:
 	match str(src["t"]):
 		"space":
-			return "%s (cubo %s)" % [D.SPACE[src["sp"]]["name"], D.cube_name(src["c"])]
+			return "%s (%s)" % [D.SPACE[src["sp"]]["name"], "cubo peste" if src["c"] == "pl" else "cubo " + D.cube_name(src["c"])]
 		"well":
 			return "Pozzo (3 cubi %s)" % D.cube_name(src["c"])
 		"oldman":
@@ -65,7 +65,7 @@ static func action(st: VLState, p: int, a: Dictionary) -> String:
 		"craft":
 			var b: String = a["b"]
 			if b == "mill":
-				return "Mulino: 2 grano e %s → %d monete%s" % [tempi(2), 5 if a.get("miller", false) else 2, " (Mugnaio)" if a.get("miller", false) else ""]
+				return "Mulino: 2 grano e %s » %d monete%s" % [tempi(2), 5 if a.get("miller", false) else 2, " (Mugnaio)" if a.get("miller", false) else ""]
 			var cr: Dictionary = D.CRAFT[b]
 			var g: String = a.get("g", cr.get("good", ""))
 			var qty: int = int(cr.get("qty", 1))
@@ -90,9 +90,9 @@ static func action(st: VLState, p: int, a: Dictionary) -> String:
 			var rw := ""
 			if not (a["to"] in st.players[p]["cities"]):
 				match str(D.CITY[a["to"]]["reward"]):
-					"pp3": rw = " → 3 punti"
-					"coin": rw = " → 1 moneta"
-					"cubes2": rw = " → 2 cubi a scelta"
+					"pp3": rw = " » 3 punti"
+					"coin": rw = " » 1 moneta"
+					"cubes2": rw = " » 2 cubi a scelta"
 			return "Viaggio: familiare %d da %s a %s (%s)%s" % [m2["gen"], from, D.CITY[a["to"]]["name"], cost2, rw]
 		"council":
 			match str(a["how"]):

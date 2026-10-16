@@ -670,6 +670,13 @@ func look_at_point(p: Vector3, d := 16.0) -> void:
 	_dist_t = d
 
 
+func chron_view() -> void:
+	if st.big_chron:
+		look_at_point((chron_tile["pos"] + graves_tile["pos"]) / 2.0, 15.0)
+	else:
+		look_at_point(px(Vector2(1300, 1800)), 13.0)
+
+
 func farm_view(s: int) -> void:
 	look_at_point(farm_center[s] + Vector3(0, 0, 0.8), 13.0)
 

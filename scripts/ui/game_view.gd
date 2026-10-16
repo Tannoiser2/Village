@@ -165,7 +165,7 @@ func _build_cam() -> void:
 	flat_btn.pressed.connect(_toggle_flat)
 	hb.add_child(flat_btn)
 	for spec in [["<", "Ruota a sinistra (Q)", func(): board.rotate_view(-30)], [">", "Ruota a destra (E)", func(): board.rotate_view(30)],
-			["+", "Avvicina", func(): board.zoom(0.85)], ["−", "Allontana", func(): board.zoom(1.18)]]:
+			["+", "Avvicina", func(): board.zoom(0.85)], ["-", "Allontana", func(): board.zoom(1.18)]]:
 		var b := UI.button(spec[0], 48, 44, 24)
 		b.tooltip_text = spec[1]
 		b.pressed.connect(spec[2])
@@ -177,6 +177,10 @@ func _build_cam() -> void:
 	v1.tooltip_text = "Inquadra tutto il tavolo (Home)"
 	v1.pressed.connect(func(): board.reset_view())
 	hb2.add_child(v1)
+	var v3 := UI.button("Cronache", 124, 40, 18)
+	v3.tooltip_text = "Inquadra le cronache del villaggio e le tombe"
+	v3.pressed.connect(func(): board.chron_view())
+	hb2.add_child(v3)
 	var v2 := UI.button("Fattorie", 120, 40, 18)
 	v2.tooltip_text = "Inquadra le fattorie delle famiglie"
 	v2.pressed.connect(func(): board.look_at_point(Vector3(0, 0, Board3D.HALF + 4.5), 22.0))
@@ -460,14 +464,14 @@ func _player_row(s: int) -> Control:
 	if st.goals_on:
 		if see:
 			for g in pl["goals"]:
-				var gl := UI.label("◆ " + Describe.goal_text(g), 15, UI.INK2, UI.font_italic)
+				var gl := UI.label("· " + Describe.goal_text(g), 15, UI.INK2, UI.font_italic)
 				gl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 				gl.custom_minimum_size = Vector2(LW - 40, 0)
 				vb.add_child(gl)
 		elif pl["goals"].size() > 0:
 			vb.add_child(UI.label("obiettivi di vita segreti: %d" % pl["goals"].size(), 15, UI.INK2, UI.font_italic))
 		for g in pl["goals_done"]:
-			vb.add_child(UI.label("✓ " + st.goal_def(g)["name"], 15, UI.GREEN, UI.font_bold))
+			vb.add_child(UI.label("Fatto: " + st.goal_def(g)["name"], 15, UI.GREEN, UI.font_bold))
 	if st.port:
 		var sh: Dictionary = pl["ship"]
 		var hold := []
@@ -503,7 +507,7 @@ func _refresh_side() -> void:
 			var t := UI.icon_rect(UI.customer(st.front[i]), Vector2(84, 84))
 			t.mouse_filter = Control.MOUSE_FILTER_STOP
 			var cu: Dictionary = D.CUSTOMERS[st.front[i]]
-			t.tooltip_text = "Cliente: %s → %d punti" % [Describe.need_text(cu["need"]), cu["pp"]]
+			t.tooltip_text = "Cliente: %s » %d punti" % [Describe.need_text(cu["need"]), cu["pp"]]
 			f.add_child(t)
 	side_box.add_child(f)
 	var qn := 0
@@ -511,6 +515,33 @@ func _refresh_side() -> void:
 		if st.queue[i] >= 0:
 			qn += 1
 	side_box.add_child(UI.label("in coda %d · nella pila %d" % [qn, st.pile.size()], 17, UI.INK2, UI.font_italic))
+	side_box.add_child(UI.title("Cronache", 26))
+	for sec in D.SECTIONS:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 3)
+		var nm := UI.label(D.SECTION[sec]["name"], 17, D.SECTION[sec]["color"].darkened(0.2), UI.font_bold)
+		nm.custom_minimum_size = Vector2(196, 0)
+		row.add_child(nm)
+		for v in st.chron[sec]:
+			row.add_child(_slot_box(int(v)))
+		side_box.add_child(row)
+	var gr := HBoxContainer.new()
+	gr.add_theme_constant_override("separation", 3)
+	var gl := UI.label("Tombe anonime", 17, UI.INK2, UI.font_bold)
+	gl.custom_minimum_size = Vector2(196, 0)
+	gr.add_child(gl)
+	for v in st.graves:
+		gr.add_child(_slot_box(int(v)))
+	side_box.add_child(gr)
+	if st.port:
+		var br := HBoxContainer.new()
+		br.add_theme_constant_override("separation", 3)
+		var bl := UI.label("Sepolture in mare", 17, UI.INK2, UI.font_bold)
+		bl.custom_minimum_size = Vector2(196, 0)
+		br.add_child(bl)
+		for v in st.burials:
+			br.add_child(_slot_box(int(v)))
+		side_box.add_child(br)
 	if st.inn:
 		side_box.add_child(UI.title("Locanda", 26))
 		var lf := HBoxContainer.new()
@@ -543,6 +574,22 @@ func _refresh_side() -> void:
 				mi.append("%s (%s)" % [D.SEA[isl]["name"], st.pname(st.members[int(st.missions[isl])]["owner"])])
 		if not mi.is_empty():
 			side_box.add_child(UI.wrap("Missioni: " + ", ".join(mi), 16, RW - 50, UI.INK2))
+
+
+## Casella delle cronache: libera, coperta (meno giocatori) o occupata (colore della famiglia).
+func _slot_box(v: int) -> Panel:
+	var p := Panel.new()
+	p.custom_minimum_size = Vector2(18, 18)
+	var col := Color(0.42, 0.29, 0.17, 0.12)
+	var border := Color(0.42, 0.29, 0.17, 0.6)
+	if v == -2:
+		col = Color(0.2, 0.15, 0.1, 0.55)
+	elif v >= 0:
+		col = UI.pcolor(st.players[v]["color"])
+		border = UI.INK
+	p.add_theme_stylebox_override("panel", UI.panel_style(col, border, 1, 9))
+	p.tooltip_text = "coperta" if v == -2 else ("libera" if v == -1 else st.pname(v))
+	return p
 
 
 func _idle_message() -> void:
@@ -788,7 +835,7 @@ func _turn_ui() -> void:
 			others[t] = true
 	for c in wells:
 		var src2 := {"t": "well", "c": c}
-		f.add_child(_btn("Pozzo: 3 cubi %s → azione a scelta" % D.cube_name(c), func(): _pick_src(src2), not hm.is_empty() and hm["src"]["t"] == "well" and hm["src"]["c"] == c))
+		f.add_child(_btn("Pozzo: 3 cubi %s » azione a scelta" % D.cube_name(c), func(): _pick_src(src2), not hm.is_empty() and hm["src"]["t"] == "well" and hm["src"]["c"] == c))
 	if others.has("oldman"):
 		f.add_child(_btn("Vecchio saggio: 3 punti e azione gratuita", func(): _pick_src({"t": "oldman"}), not hm.is_empty() and hm["src"]["t"] == "oldman"))
 	if others.has("free"):
@@ -858,8 +905,10 @@ func _turn_actions() -> void:
 	act_title.text = _who() + "%s · %s: scegli l'azione" % [Describe.src_text(src), D.SPACE[sp]["name"] if sp != "" else ""]
 	var hm := _hint_move()
 	var moves: Array = pending["moves"]
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 5)
+	var col := GridContainer.new()
+	col.columns = 2
+	col.add_theme_constant_override("h_separation", 6)
+	col.add_theme_constant_override("v_separation", 5)
 	act_body.add_child(col)
 	var targets := {}
 	var has_sail := false
@@ -874,8 +923,11 @@ func _turn_actions() -> void:
 			has_sail = true
 		var idx := i
 		var hl: bool = not hm.is_empty() and _same(hm, m)
-		var b := _btn(Describe.action(st, s, a), func(): _provide(idx), hl)
+		var b := _btn(Describe.action(st, s, a), func(): _provide(idx), hl, 17, 42.0)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size.x = (MW - 74) / 2.0
+		b.clip_text = true
+		b.tooltip_text = Describe.action(st, s, a) + ("\n(consiglio dell'IA)" if hl else "")
 		col.add_child(b)
 		# bersagli sul tabellone per scegliere il familiare o la città
 		var key := _target_key(a)
@@ -927,7 +979,7 @@ func _sail_ui() -> void:
 			var c2: int = c
 			var spec: Dictionary = D.ADMIRAL if c == 100 else D.CAPTAINS[c]
 			var t := "Ammiraglio" if c == 100 else "Capitano da %d" % int(spec["cost"])
-			t += ": %s → %d %s" % [Describe.cubes_text(spec["pay"]), spec["steps"], "passo" if int(spec["steps"]) == 1 else "passi"]
+			t += ": %s » %d %s" % [Describe.cubes_text(spec["pay"]), spec["steps"], "passo" if int(spec["steps"]) == 1 else "passi"]
 			var b := _btn(t, func():
 				sel["cap"] = c2
 				_show_decision())
@@ -953,7 +1005,7 @@ func _sail_ui() -> void:
 			var kind: String = it.get_slice(":", 0)
 			var on: bool = it in sel["load"]
 			var label := ("familiare %d" % st.members[int(it.get_slice(":", 1))]["gen"]) if kind == "member" else ("grano" if kind == "grain" else D.good_name(kind))
-			var b2 := _btn(("✓ " if on else "") + label, func():
+			var b2 := _btn(("» " if on else "") + label, func():
 				if it2 in sel["load"]:
 					sel["load"].erase(it2)
 				elif sel["load"].size() < 3:
@@ -963,7 +1015,7 @@ func _sail_ui() -> void:
 				_show_decision(), on)
 			f.add_child(b2)
 		if st.has_card(s, "helmsman"):
-			var hb := _btn(("✓ " if sel["helm"] else "") + "Timoniere (1 passo gratis in più)", func():
+			var hb := _btn(("» " if sel["helm"] else "") + "Timoniere (1 passo gratis in più)", func():
 				sel["helm"] = not sel["helm"]
 				_show_decision(), sel["helm"])
 			f.add_child(hb)
@@ -997,7 +1049,7 @@ func _sail_ui() -> void:
 			sel["path"].append(nb2)
 			_show_decision()
 		target_info["sea:" + nb] = D.SEA[nb].get("name", "Acque del tempo: perdi 1 tempo")
-		f.add_child(_btn("→ " + D.SEA[nb].get("name", "acque del tempo"), func():
+		f.add_child(_btn("» " + D.SEA[nb].get("name", "acque del tempo"), func():
 			sel["path"].append(nb2)
 			_show_decision()))
 	board.set_targets(targets)
@@ -1153,7 +1205,7 @@ func _island_ui() -> void:
 	for g in opts["sell"]:
 		var g2: String = g
 		var on: bool = g in sel["sell"]
-		f.add_child(_btn(("✓ " if on else "") + "Vendi %s (%d punti)" % [D.good_name(g), D.SEA[isl]["sell"][g]], func():
+		f.add_child(_btn(("» " if on else "") + "Vendi %s (%d punti)" % [D.good_name(g), D.SEA[isl]["sell"][g]], func():
 			if g2 in sel["sell"]:
 				sel["sell"].erase(g2)
 			else:
@@ -1161,17 +1213,17 @@ func _island_ui() -> void:
 			_show_decision(), on))
 	if opts["take"]:
 		var kind: String = D.SEA[isl]["stack"]
-		f.add_child(_btn(("✓ " if sel["take"] else "") + "Carica %s" % ("un forziere" if kind == "chest" else D.good_name(kind)), func():
+		f.add_child(_btn(("» " if sel["take"] else "") + "Carica %s" % ("un forziere" if kind == "chest" else D.good_name(kind)), func():
 			sel["take"] = not sel["take"]
 			_show_decision(), sel["take"]))
 		if opts["take2"]:
-			f.add_child(_btn(("✓ " if sel["take2"] else "") + "Quartiermastro: caricane 2", func():
+			f.add_child(_btn(("» " if sel["take2"] else "") + "Quartiermastro: caricane 2", func():
 				sel["take2"] = not sel["take2"]
 				_show_decision(), sel["take2"]))
 	for mid in opts["mission"]:
 		var m2: int = mid
 		var on2: bool = int(sel["mission"]) == mid
-		f.add_child(_btn(("✓ " if on2 else "") + "Missione con il familiare %d (%d punti)" % [st.members[mid]["gen"], D.SEA[isl]["mpp"]], func():
+		f.add_child(_btn(("» " if on2 else "") + "Missione con il familiare %d (%d punti)" % [st.members[mid]["gen"], D.SEA[isl]["mpp"]], func():
 			sel["mission"] = -1 if int(sel["mission"]) == m2 else m2
 			_show_decision(), on2))
 	var ok := UI.primary(UI.button("Conferma", 180, 44, 20))
@@ -1314,7 +1366,7 @@ func _pick_members_ui(ids: Array, mx: int, ok_text: String) -> void:
 		var id2: int = id
 		var m: Dictionary = st.members[id]
 		var on: bool = id in sel["picks"]
-		f.add_child(_btn(("✓ " if on else "") + "%s %d" % [st.pname(m["owner"]), m["gen"]], func():
+		f.add_child(_btn(("» " if on else "") + "%s %d" % [st.pname(m["owner"]), m["gen"]], func():
 			if id2 in sel["picks"]:
 				sel["picks"].erase(id2)
 			elif sel["picks"].size() < mx:
@@ -1385,7 +1437,7 @@ func _death_ui() -> void:
 				if int(v) == -1:
 					free = true
 			dest = "cronache (%s)" % D.SECTION[sec]["name"] if free else ("sepoltura in mare" if st.port and (m["loc"] == "ship" or str(m["loc"]).begins_with("mission:")) else "tomba anonima")
-		f.add_child(_btn("Familiare %d (%s) → %s" % [m["gen"], st.loc_name(m["loc"]), "cronache (Bardo)" if sel["bard"] else dest], func(): _provide({"m": id2, "bard": sel["bard"]}), hr is Dictionary and int(hr.get("m", -1)) == id))
+		f.add_child(_btn("Familiare %d (%s) » %s" % [m["gen"], st.loc_name(m["loc"]), "cronache (Bardo)" if sel["bard"] else dest], func(): _provide({"m": id2, "bard": sel["bard"]}), hr is Dictionary and int(hr.get("m", -1)) == id))
 		targets["m:%d" % id] = board.member_pos(id)
 		target_map["m:%d" % id] = func(): _provide({"m": id2, "bard": sel["bard"]})
 		target_info["m:%d" % id] = "Familiare %d (%s)" % [m["gen"], st.loc_name(m["loc"])]
