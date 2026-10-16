@@ -4,7 +4,7 @@
   "descrizione": "Famiglie che nascono, lavorano, viaggiano e finiscono nelle cronache del villaggio: tabellone 3D (o 2D), con Village Inn, Village Port e gli Obiettivi di vita, contro l'IA o online.",
   "online": true,
   "sezione": "conversione",
-  "ordine": 190,
+  "ordine": 186,
   "gioca": "https://tannoiser2.github.io/Village/",
   "bgg": 104006,
   "generi": [
