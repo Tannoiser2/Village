@@ -219,7 +219,7 @@ func _turn(p: int, final: bool) -> void:
 		if r is Dictionary and r.get("k", "") == "card" and int(r.get("id", -1)) in cards:
 			await _card(p, int(r["id"]))
 			continue
-		mv = _valid_move(r, moves)
+		mv = _valid_move(p, r, moves)
 		break
 	if mv != null:
 		await _do_move(p, mv)
@@ -251,7 +251,7 @@ func _turn(p: int, final: bool) -> void:
 				if moves2.is_empty():
 					continue
 				var r3 = await decide(p, {"type": "turn", "moves": moves2, "cards": [], "final": final, "title": "Giocoliere: scegli l'azione in più"})
-				var mv2 = _valid_move(r3, moves2)
+				var mv2 = _valid_move(p, r3, moves2)
 				if mv2 != null:
 					await _do_move(p, mv2)
 			_:
@@ -260,7 +260,7 @@ func _turn(p: int, final: bool) -> void:
 
 
 ## Accetta la mossa solo se è fra quelle possibili (online arriva dal database).
-func _valid_move(r, moves: Array):
+func _valid_move(p: int, r, moves: Array):
 	if r is int and r >= 0 and r < moves.size():
 		return moves[r]
 	if r is Dictionary:
@@ -271,7 +271,9 @@ func _valid_move(r, moves: Array):
 		if r.get("k", "") == "move" and r.get("a", {}).get("a", "") == "sail":
 			for m in moves:
 				if m["src"] == r.get("src", {}) and m["a"].get("a", "") == "sail":
-					return r
+					if st.sail_valid(p, r):
+						return r
+					break
 	return moves[0] if not moves.is_empty() else null
 
 
@@ -389,8 +391,9 @@ func _card(p: int, cid: int) -> void:
 
 # ------------------------------------------------------------------ morte
 
-func _deaths(p: int) -> void:
-	while not abort and int(st.players[p]["deaths"]) > 0:
+## keep: morti già maturate prima del giorno di mercato (si risolvono a fine turno).
+func _deaths(p: int, keep := 0) -> void:
+	while not abort and int(st.players[p]["deaths"]) > keep:
 		var opts := st.death_options(p)
 		if opts.is_empty():
 			st.players[p]["deaths"] = 0
@@ -428,6 +431,8 @@ func _market(opener: int) -> void:
 				st.discard_card(q, "barker")
 				barker[q] = true
 				log_msg("%s gioca l'Imbonitore." % pname(q))
+	# chi aveva già superato il ponte prima del mercato muore a fine turno, non durante
+	var opener_keep := int(st.players[opener]["deaths"])
 	var passed := {}
 	var free_left := true
 	var served := false
@@ -459,7 +464,7 @@ func _market(opener: int) -> void:
 			free_left = false
 		_sync()
 		fx.emit("sale", {"seat": q})
-		await _deaths(q)
+		await _deaths(q, opener_keep if q == opener else 0)
 	for q in order:
 		if barker.has(q):
 			continue

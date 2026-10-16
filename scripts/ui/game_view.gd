@@ -1037,6 +1037,14 @@ func _sail_ui() -> void:
 			tt += 1
 	var cap_cost: int = int(spec2.get("cost", 0)) if sh["at"] == "P" else 0
 	var afford: bool = st._missing(s, cost) <= int(pl["coins"]) - cap_cost
+	if afford and not path.is_empty():
+		# prova la rotta su una copia dello stato (conta anche i cubi dati al pozzo)
+		var probe := {"a": "sail", "path": path.duplicate(), "land": false}
+		if sh["at"] == "P":
+			probe["cap"] = sel["cap"]
+			probe["load"] = sel["load"].duplicate()
+			probe["helm"] = sel["helm"]
+		afford = st.sail_valid(s, {"k": "move", "src": src, "a": probe})
 	act_title.text = _who() + "Rotta: clicca le acque vicine sulla mappa. %d %s, %s%s%s" % [path.size(), "tratto" if path.size() == 1 else "tratti", Describe.tempi(tt),
 		(", " + Describe.cubes_text(cost)) if not cost.is_empty() else ", nessun cubo", "" if afford else " (non puoi pagarlo!)"]
 	var targets := {}

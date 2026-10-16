@@ -69,7 +69,7 @@ func setup(config: Dictionary) -> void:
 		for k in D.GENS.size():
 			members.append({"id": s * 11 + k, "owner": s, "gen": D.GENS[k], "loc": "farm" if D.GENS[k] == 1 else "pool"})
 	for c in D.CUBES:
-		supply[c] = D.CUBE_SUPPLY + (D.CUBE_SUPPLY_INN if inn else 0) + (D.CUBE_SUPPLY_PORT if port else 0)
+		supply[c] = D.CUBE_SUPPLY + (D.CUBE_SUPPLY_INN if inn or n == 5 else 0) + (D.CUBE_SUPPLY_PORT if port else 0)
 		bag[c] = 0
 	supply["pl"] = D.PLAGUE
 	bag["pl"] = 0
@@ -471,7 +471,9 @@ func turn_moves(p: int, final := false) -> Array:
 			continue
 		var acts := action_options(p, sp)
 		for c in colors:
-			out.append({"k": "move", "src": {"t": "space", "sp": sp, "c": c}, "a": {"a": "none"}})
+			# il giorno di mercato si svolge comunque: niente "solo il cubo" sul Mercato
+			if sp != "market" or c == "pl":
+				out.append({"k": "move", "src": {"t": "space", "sp": sp, "c": c}, "a": {"a": "none"}})
 			for a in acts:
 				out.append({"k": "move", "src": {"t": "space", "sp": sp, "c": c}, "a": a})
 	if left > 0:
@@ -523,17 +525,16 @@ func action_options(p: int, sp: String, well_color := "") -> Array:
 				for g in goods_opts:
 					if here:
 						out.append({"a": "craft", "b": b, "how": "make", "g": g})
-					else:
-						for m in dg:
-							out.append({"a": "craft", "b": b, "how": "trainmake", "g": g, "m": m["id"]})
+					# nessun limite di familiari per edificio: si può sempre addestrarne un altro
+					for m in dg:
+						out.append({"a": "craft", "b": b, "how": "trainmake", "g": g, "m": m["id"]})
 					if cr.has("grain"):
 						if int(pl["grain"]) >= int(cr["grain"]):
 							out.append({"a": "craft", "b": b, "how": "buy", "g": g})
 					elif _can_pay_well(p, cr["buy"], well_color):
 						out.append({"a": "craft", "b": b, "how": "buy", "g": g})
-				if not here:
-					for m in dg:
-						out.append({"a": "craft", "b": b, "how": "train", "m": m["id"]})
+				for m in dg:
+					out.append({"a": "craft", "b": b, "how": "train", "m": m["id"]})
 		"market":
 			out.append({"a": "market"})
 		"travel":
@@ -996,6 +997,9 @@ static func sea_path(from: String, to: String) -> Array:
 		if a == to:
 			break
 		for b in D.sea_neighbors(a):
+			# il porto non è uno spazio d'acqua: non ci si passa attraverso
+			if b == "P" and b != to:
+				continue
 			if not prev.has(b):
 				prev[b] = a
 				q.append(b)
@@ -1092,6 +1096,30 @@ func hold_has(p: int, kind: String) -> bool:
 
 
 ## Mossa per mare: ingaggio, carico, percorso, approdo. Il pagamento dei passi è automatico.
+## Controlla una mossa per mare costruita a mano: percorso collegato (senza passare dal porto)
+## e risorse sufficienti dopo averla applicata su una copia.
+func sail_valid(p: int, mv: Dictionary) -> bool:
+	var a: Dictionary = mv.get("a", {})
+	var path: Array = a.get("path", [])
+	var cur: String = players[p]["ship"]["at"]
+	for nd in path:
+		if not (str(nd) in D.sea_neighbors(cur)) or str(nd) == "P":
+			return false
+		cur = str(nd)
+	var c := clone()
+	c.apply_move(p, mv)
+	var pl: Dictionary = c.players[p]
+	if int(pl["coins"]) < 0 or int(pl["grain"]) < 0:
+		return false
+	for k in pl["cubes"]:
+		if int(pl["cubes"][k]) < 0:
+			return false
+	for k in pl["goods"]:
+		if int(pl["goods"][k]) < 0:
+			return false
+	return true
+
+
 func _sail(p: int, a: Dictionary) -> Dictionary:
 	var pl: Dictionary = players[p]
 	var sh: Dictionary = pl["ship"]
@@ -1152,6 +1180,8 @@ func _sail(p: int, a: Dictionary) -> Dictionary:
 			if sh["hold"].size() >= 3:
 				break
 			var kind := str(it).get_slice(":", 0)
+			if not (kind in D.LOADABLE):
+				continue
 			if types.has(kind):
 				if qm_used or not has_card(p, "quartermaster"):
 					continue
