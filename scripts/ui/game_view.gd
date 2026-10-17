@@ -620,7 +620,7 @@ func _show_decision() -> void:
 		"priv": _priv_ui()
 		"inn_buy": _inn_ui()
 		"island": _island_ui()
-		"family": _list_ui(req["options"].map(func(a): return Describe.action(st, int(req["seat"]), a)), true)
+		"family": _family_ui()
 		"herb": _herb_ui()
 		"noble": _noble_ui()
 		"city": _city_ui()
@@ -746,7 +746,9 @@ func _turn_ui() -> void:
 			others[t] = true
 	for c in wells:
 		var src2 := {"t": "well", "c": c}
-		f.add_child(_btn("Pozzo: 3 cubi %s » azione a scelta" % D.cube_name(c), func(): _pick_src(src2), not hm.is_empty() and hm["src"]["t"] == "well" and hm["src"]["c"] == c))
+		var wb := _rich_btn(["Pozzo: paga", {"cube": c}, {"cube": c}, {"cube": c}, "» azione a scelta"], not hm.is_empty() and hm["src"]["t"] == "well" and hm["src"]["c"] == c)
+		wb.pressed.connect(func(): _pick_src(src2))
+		f.add_child(wb)
 	if others.has("oldman"):
 		f.add_child(_btn("Vecchio saggio: 3 punti e azione gratuita", func(): _pick_src({"t": "oldman"}), not hm.is_empty() and hm["src"]["t"] == "oldman"))
 	if others.has("free"):
@@ -915,11 +917,13 @@ func _rich_btn(parts: Array, hinted := false) -> Button:
 			tb.add_child(tl)
 			tb.tooltip_text = Describe.tempi(int(p["time"]))
 			hb.add_child(tb)
+		elif p.has("img"):
+			hb.add_child(UI.icon_rect(p["img"], p.get("size", Vector2(30, 30))))
 		elif p.has("meeple"):
 			var mc := Control.new()
 			mc.custom_minimum_size = Vector2(28, 30)
 			mc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			var key: String = D.COLORS[st.players[int(pending.get("seat", 0))]["color"]]["key"]
+			var key: String = D.COLORS[st.players[int(p.get("owner", pending.get("seat", 0)))]["color"]]["key"]
 			var mi := UI.icon_rect(UI.tex("res://assets/ui/meeple_%s.png" % key), Vector2(28, 30))
 			mc.add_child(mi)
 			var nl := UI.label(str(p["meeple"]), 15, Color.WHITE, UI.font_bold)
@@ -1291,14 +1295,18 @@ func _after_ui() -> void:
 	var r = hint.get("r", null)
 	for cid in pending.get("cards", []):
 		var c2: int = cid
-		var b := _btn("Gioca %s" % D.VILLAGERS[cid]["name"], func(): _provide({"k": "card", "id": c2}), r is Dictionary and r.get("k", "") == "card" and int(r.get("id", -1)) == cid)
+		var b := _rich_btn([{"img": UI.villager(cid), "size": Vector2(26, 41)}, "Gioca %s" % D.VILLAGERS[cid]["name"]], r is Dictionary and r.get("k", "") == "card" and int(r.get("id", -1)) == cid)
 		b.tooltip_text = D.VILLAGERS[cid]["text"]
+		b.pressed.connect(func(): _provide({"k": "card", "id": c2}))
 		f.add_child(b)
 	if pending.get("juggler", false):
-		f.add_child(_btn("Giocoliere: 2 punti e un'altra azione", func(): _provide({"k": "juggler"}), r is Dictionary and r.get("k", "") == "juggler"))
-	var e := UI.primary(UI.button("Fine del turno", 220, 44, 20))
+		var j := _rich_btn([{"img": UI.villager(st.card_id("juggler")), "size": Vector2(26, 41)}, "Giocoliere: +2 punti e un'altra azione"], r is Dictionary and r.get("k", "") == "juggler")
+		j.pressed.connect(func(): _provide({"k": "juggler"}))
+		f.add_child(j)
+	var e := UI.primary(UI.button("Fine del turno", 220, 48, 20))
 	e.pressed.connect(func(): _provide({"k": "end"}))
 	f.add_child(e)
+
 
 
 func _cubes2_ui() -> void:
@@ -1362,8 +1370,20 @@ func _priv_ui() -> void:
 	var f := _flow()
 	for l in pending["options"]:
 		var l2: int = l
-		f.add_child(_btn("%d° livello: %s" % [l, D.PRIV[l]], func(): _provide(l2), hint.get("r", -1) == l))
-	f.add_child(_btn("Nessun privilegio", func(): _provide(0)))
+		var parts: Array = ["%d° livello:" % l]
+		match int(l):
+			1: parts.append_array([{"tok": "next"}, "primo giocatore al prossimo round"])
+			2: parts.append_array(["2 cubi a scelta", {"cube": "pk"}, {"cube": "br"}, {"cube": "gr"}, {"cube": "or"}])
+			3: parts.append_array(["1 merce a scelta", {"tok": "horse"}, {"tok": "ox"}, {"tok": "plow"}, {"tok": "wagon"}, {"tok": "scroll"}])
+			4: parts.append_array(["paga", {"tok": "coin"}, "» 3 punti"])
+		var b := _rich_btn(parts, hint.get("r", -1) == l)
+		b.tooltip_text = D.PRIV[l]
+		b.pressed.connect(func(): _provide(l2))
+		f.add_child(b)
+	var no := _rich_btn(["Nessun privilegio"])
+	no.pressed.connect(func(): _provide(0))
+	f.add_child(no)
+
 
 
 func _inn_ui() -> void:
@@ -1396,34 +1416,46 @@ func _island_ui() -> void:
 	var isl: String = pending["isl"]
 	if not sel.has("sell"):
 		sel = {"sell": opts["sell"].duplicate(), "take": opts["take"], "take2": false, "mission": (opts["mission"][0] if not opts["mission"].is_empty() else -1)}
+	act_body.add_child(UI.label("Clicca per scegliere (» = scelto), poi Conferma.", 17, UI.INK2, UI.font_italic))
 	var f := _flow()
 	for g in opts["sell"]:
 		var g2: String = g
 		var on: bool = g in sel["sell"]
-		f.add_child(_btn(("» " if on else "") + "Vendi %s (%d punti)" % [D.good_name(g), D.SEA[isl]["sell"][g]], func():
+		var b := _rich_btn([("» " if on else "") + "Vendi", {"tok": g}, "» %d punti" % D.SEA[isl]["sell"][g]], on)
+		b.tooltip_text = "Vendi %s per %d punti" % [D.good_name(g), D.SEA[isl]["sell"][g]]
+		b.pressed.connect(func():
 			if g2 in sel["sell"]:
 				sel["sell"].erase(g2)
 			else:
 				sel["sell"].append(g2)
-			_show_decision(), on))
+			_show_decision())
+		f.add_child(b)
 	if opts["take"]:
 		var kind: String = D.SEA[isl]["stack"]
-		f.add_child(_btn(("» " if sel["take"] else "") + "Carica %s" % ("un forziere" if kind == "chest" else D.good_name(kind)), func():
+		var b2 := _rich_btn([("» " if sel["take"] else "") + "Carica", {"tok": kind}], sel["take"])
+		b2.pressed.connect(func():
 			sel["take"] = not sel["take"]
-			_show_decision(), sel["take"]))
+			_show_decision())
+		f.add_child(b2)
 		if opts["take2"]:
-			f.add_child(_btn(("» " if sel["take2"] else "") + "Quartiermastro: caricane 2", func():
+			var b3 := _rich_btn([("» " if sel["take2"] else "") + "Quartiermastro: caricane 2", {"tok": kind}, {"tok": kind}], sel["take2"])
+			b3.pressed.connect(func():
 				sel["take2"] = not sel["take2"]
-				_show_decision(), sel["take2"]))
+				_show_decision())
+			f.add_child(b3)
 	for mid in opts["mission"]:
 		var m2: int = mid
 		var on2: bool = int(sel["mission"]) == mid
-		f.add_child(_btn(("» " if on2 else "") + "Missione con il familiare %d (%d punti)" % [st.members[mid]["gen"], D.SEA[isl]["mpp"]], func():
+		var b4 := _rich_btn([("» " if on2 else "") + "Missione con", {"meeple": int(st.members[mid]["gen"])}, "» %d punti" % D.SEA[isl]["mpp"]], on2)
+		b4.pressed.connect(func():
 			sel["mission"] = -1 if int(sel["mission"]) == m2 else m2
-			_show_decision(), on2))
-	var ok := UI.primary(UI.button("Conferma", 180, 44, 20))
+			_show_decision())
+		f.add_child(b4)
+	var f2 := _flow()
+	var ok := UI.primary(UI.button("Conferma", 180, 46, 20))
 	ok.pressed.connect(func(): _provide(sel.duplicate(true)))
-	f.add_child(ok)
+	f2.add_child(ok)
+
 
 
 func _list_ui(labels: Array, allow_none: bool) -> void:
@@ -1436,11 +1468,28 @@ func _list_ui(labels: Array, allow_none: bool) -> void:
 		col.add_child(_btn("Niente", func(): _provide(-1)))
 
 
+func _family_ui() -> void:
+	var f := _flow()
+	var seat: int = pending["seat"]
+	for i in pending["options"].size():
+		var i2: int = i
+		var b := _rich_btn(_chip(seat, pending["options"][i])["parts"], hint.get("r", -1) == i)
+		b.tooltip_text = Describe.action(st, seat, pending["options"][i])
+		b.pressed.connect(func(): _provide(i2))
+		f.add_child(b)
+	var no := _rich_btn(["Niente"])
+	no.pressed.connect(func(): _provide(-1))
+	f.add_child(no)
+
+
 func _herb_ui() -> void:
 	var f := _flow()
-	f.add_child(_btn("Lascia il segnatempo dov'è", func(): _provide("stay"), true))
-	f.add_child(_btn("Subito prima del ponte (la prossima morte arriva presto)", func(): _provide("before")))
-	f.add_child(_btn("Subito dopo il ponte (la prossima morte si allontana)", func(): _provide("after")))
+	for spec in [["stay", ["Lascia il segnatempo", {"tok": "time"}, "dov'è"]], ["before", ["Subito prima del ponte", "(la prossima morte arriva presto)"]], ["after", ["Subito dopo il ponte", "(la prossima morte si allontana)"]]]:
+		var k: String = spec[0]
+		var b := _rich_btn(spec[1], hint.get("r", "stay") == k)
+		b.pressed.connect(func(): _provide(k))
+		f.add_child(b)
+
 
 
 func _noble_ui() -> void:
@@ -1471,11 +1520,19 @@ func _city_ui() -> void:
 	for c in pending["options"]:
 		var c2: String = c
 		var rw: String = {"pp3": "3 punti", "coin": "1 moneta", "cubes2": "2 cubi a scelta"}[D.CITY[c]["reward"]]
-		f.add_child(_btn("%s (%s)" % [D.CITY[c]["name"], rw], func(): _provide(c2), hint.get("r", "") == c))
+		var parts: Array = [D.CITY[c]["name"], "»"]
+		match str(D.CITY[c]["reward"]):
+			"pp3": parts.append("3 punti")
+			"coin": parts.append({"tok": "coin"})
+			"cubes2": parts.append_array(["2 cubi", {"cube": "pk"}, {"cube": "or"}])
+		var b := _rich_btn(parts, hint.get("r", "") == c)
+		b.pressed.connect(func(): _provide(c2))
+		f.add_child(b)
 		targets["c:" + c] = Board3D.px(D.CITY[c]["pos"])
 		target_map["c:" + c] = func(): _provide(c2)
 		target_info["c:" + c] = "%s: %s" % [D.CITY[c]["name"], rw]
 	board.set_targets(targets)
+
 
 
 func _member_ui(ids: Array, map: Callable) -> void:
@@ -1483,7 +1540,10 @@ func _member_ui(ids: Array, map: Callable) -> void:
 	var targets := {}
 	for id in ids:
 		var id2: int = id
-		f.add_child(_btn("%s (%s)" % [Describe.member(st, id), st.loc_name(st.members[id]["loc"])], func(): _provide(map.call(id2)), hint.get("r", -1) == id))
+		var m: Dictionary = st.members[id]
+		var b := _rich_btn([{"meeple": int(m["gen"]), "owner": int(m["owner"])}, "(" + st.loc_name(m["loc"]) + ")"], hint.get("r", -1) == id)
+		b.pressed.connect(func(): _provide(map.call(id2)))
+		f.add_child(b)
 		if board.member_shown(id):
 			targets["m:%d" % id] = board.member_pos(id)
 		target_map["m:%d" % id] = func(): _provide(map.call(id2))
@@ -1491,48 +1551,59 @@ func _member_ui(ids: Array, map: Callable) -> void:
 	board.set_targets(targets)
 
 
+
 func _yesno_ui() -> void:
-	var f := _flow()
 	var key: String = pending["key"]
 	var cid := st.card_id(key)
-	act_body.add_child(UI.wrap(D.VILLAGERS[cid]["text"], 19, MW - 60, UI.INK2, UI.font_italic))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	act_body.add_child(row)
+	row.add_child(UI.icon_rect(UI.villager(cid), Vector2(76, 120)))
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	row.add_child(vb)
+	vb.add_child(UI.wrap(D.VILLAGERS[cid]["text"], 19, MW - 160, UI.INK2, UI.font_italic))
+	var f := HFlowContainer.new()
+	f.add_theme_constant_override("h_separation", 6)
+	vb.add_child(f)
 	f.add_child(_btn("Sì, gioca %s" % D.VILLAGERS[cid]["name"], func(): _provide(true), hint.get("r", false) == true))
 	f.add_child(_btn("No, la tengo", func(): _provide(false), hint.get("r", true) == false))
+
 
 
 func _market_ui() -> void:
 	var opts: Array = pending["options"]
 	var f := _flow()
-	var s: int = pending["seat"]
 	var hr = hint.get("r", -1)
 	for i in opts.size():
 		var o: Dictionary = opts[i]
 		var i2 := i
+		var b: Button
 		match str(o["k"]):
 			"cust":
 				var ci: int = (st.front if o["where"] == "f" else st.queue)[int(o["i"])]
 				var cu: Dictionary = D.CUSTOMERS[ci]
-				var b := Button.new()
-				b.custom_minimum_size = Vector2(240, 90)
-				b.icon = UI.customer(ci)
-				b.expand_icon = true
-				b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-				b.text = "%d punti\n%s%s" % [cu["pp"], Describe.need_text(cu["need"]), " (in coda)" if o["where"] == "q" else ""]
-				b.add_theme_font_size_override("font_size", 18)
-				if hr == i:
-					UI.selected(b, "meadow")
-				b.pressed.connect(func(): _provide(i2))
-				f.add_child(b)
+				var parts: Array = [{"img": UI.customer(ci), "size": Vector2(64, 64)}, "%d punti" % cu["pp"], "chiede"]
+				for g in cu["need"]:
+					for k in int(cu["need"][g]):
+						parts.append({"tok": g})
+				if o["where"] == "q":
+					parts.append("(in coda)")
+				b = _rich_btn(parts, hr == i)
+				b.tooltip_text = "Cliente: %s » %d punti" % [Describe.need_text(cu["need"]), cu["pp"]]
 			"cocoa":
-				f.add_child(_btn("Vendi un cesto di cacao (%d punti)" % D.COCOA_PP, func(): _provide(i2), hr == i))
+				b = _rich_btn(["Vendi", {"tok": "cocoa"}, "» %d punti" % D.COCOA_PP], hr == i)
 			"tea":
-				f.add_child(_btn("Vendi una balla di tè (%d punti e 1 moneta)" % D.TEA_PP, func(): _provide(i2), hr == i))
+				b = _rich_btn(["Vendi", {"tok": "tea"}, "» %d punti e" % D.TEA_PP, {"tok": "coin"}], hr == i)
 			"pass":
-				var p := UI.button("Passa (non vendi più oggi)", 0, 90, 19)
-				if hr == i:
-					UI.selected(p, "meadow")
-				p.pressed.connect(func(): _provide(i2))
-				f.add_child(p)
+				b = _rich_btn(["Passa (oggi non vendi più)"], hr == i)
+		if b == null:
+			continue
+		b.pressed.connect(func(): _provide(i2))
+		f.add_child(b)
+	if not pending.get("free", false):
+		act_body.add_child(UI.label("Ogni vendita dopo la prima costa 1 cubo verde e 1 tempo.", 17, UI.INK2, UI.font_italic))
+
 
 
 func _scrap_ui() -> void:
@@ -1540,16 +1611,13 @@ func _scrap_ui() -> void:
 	for i in pending["options"]:
 		var i2: int = i
 		var ci: int = st.front[i]
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(200, 80)
-		b.icon = UI.customer(ci)
-		b.expand_icon = true
-		b.text = "%d punti" % D.CUSTOMERS[ci]["pp"]
-		if hint.get("r", -2) == i:
-			UI.selected(b, "meadow")
+		var b := _rich_btn([{"img": UI.customer(ci), "size": Vector2(64, 64)}, "Prendi gratis: %d punti" % D.CUSTOMERS[ci]["pp"]], hint.get("r", -2) == i)
 		b.pressed.connect(func(): _provide(i2))
 		f.add_child(b)
-	f.add_child(_btn("No, tengo il Rigattiere", func(): _provide(-1)))
+	var no := _rich_btn(["No, tengo il Rigattiere"])
+	no.pressed.connect(func(): _provide(-1))
+	f.add_child(no)
+
 
 
 func _pick_members_ui(ids: Array, mx: int, ok_text: String) -> void:
@@ -1557,17 +1625,20 @@ func _pick_members_ui(ids: Array, mx: int, ok_text: String) -> void:
 		sel["picks"] = []
 		if hint.get("r", null) is Array:
 			sel["picks"] = hint["r"].duplicate()
+	act_body.add_child(UI.label("Clicca i familiari (» = scelto, al massimo %d), poi conferma." % mx, 17, UI.INK2, UI.font_italic))
 	var f := _flow()
 	for id in ids:
 		var id2: int = id
 		var m: Dictionary = st.members[id]
 		var on: bool = id in sel["picks"]
-		f.add_child(_btn(("» " if on else "") + "%s %d" % [st.pname(m["owner"]), m["gen"]], func():
+		var b := _rich_btn([("» " if on else "") + st.pname(m["owner"]), {"meeple": int(m["gen"]), "owner": int(m["owner"])}], on)
+		b.pressed.connect(func():
 			if id2 in sel["picks"]:
 				sel["picks"].erase(id2)
 			elif sel["picks"].size() < mx:
 				sel["picks"].append(id2)
-			_show_decision(), on))
+			_show_decision())
+		f.add_child(b)
 	var f2 := _flow()
 	var ok := UI.primary(UI.button("%s (%d)" % [ok_text, sel["picks"].size()], 0, 46, 20))
 	ok.pressed.connect(func(): _provide(sel["picks"].duplicate()))
@@ -1575,6 +1646,7 @@ func _pick_members_ui(ids: Array, mx: int, ok_text: String) -> void:
 	var no := UI.button("Nessuno", 160, 46, 20)
 	no.pressed.connect(func(): _provide([]))
 	f2.add_child(no)
+
 
 
 func _mass_up_ui() -> void:
@@ -1585,22 +1657,30 @@ func _mass_up_ui() -> void:
 	var tot := 0
 	for id in sel["moves"]:
 		tot += VLState.climb_cost(int(str(st.members[id]["loc"]).substr(7)), int(sel["moves"][id]))
-	act_body.add_child(UI.label("Grano: %d · costo scelto: %d. Tra le vetrate: 1, 2 e 4 grano." % [grain, tot], 19, UI.RED if tot > grain else UI.INK2, UI.font_italic))
+	var info := HBoxContainer.new()
+	info.add_theme_constant_override("separation", 4)
+	info.add_child(UI.label("Hai %d" % grain, 19, UI.INK, UI.font_bold))
+	info.add_child(UI.icon_rect(UI.token("grain"), Vector2(22, 30)))
+	info.add_child(UI.label("· costo scelto %d · per salire di una vetrata: 1, 2 e 4 grano" % tot, 19, UI.RED if tot > grain else UI.INK2, UI.font_italic))
+	act_body.add_child(info)
 	for id in pending["members"]:
 		var id2: int = id
 		var m: Dictionary = st.members[id]
 		var w0 := int(str(m["loc"]).substr(7))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
-		row.add_child(UI.label("Familiare %d (vetrata da %d):" % [m["gen"], D.WINDOW_PTS[w0]], 19, UI.INK, UI.font_bold))
-		for w in range(w0, 4):
+		var head := HBoxContainer.new()
+		head.custom_minimum_size = Vector2(150, 0)
+		var mc := _rich_btn([{"meeple": int(m["gen"])}, "ora %d punti" % D.WINDOW_PTS[w0]])
+		mc.disabled = true
+		head.add_child(mc)
+		row.add_child(head)
+		for w in range(w0 + 1, 4):
 			var w2 := w
 			var cur: int = int(sel["moves"].get(id, w0))
-			var b := UI.button("%d punti%s" % [D.WINDOW_PTS[w], "" if w == w0 else " (%d grano)" % VLState.climb_cost(w0, w)], 0, 40, 18)
-			if cur == w:
-				UI.selected(b, "meadow")
+			var b := _rich_btn(["» %d punti con %d" % [D.WINDOW_PTS[w], VLState.climb_cost(w0, w)], {"tok": "grain"}], cur == w)
 			b.pressed.connect(func():
-				if w2 == w0:
+				if int(sel["moves"].get(id2, w0)) == w2:
 					sel["moves"].erase(id2)
 				else:
 					sel["moves"][id2] = w2
@@ -1608,11 +1688,12 @@ func _mass_up_ui() -> void:
 			row.add_child(b)
 		act_body.add_child(row)
 	var f := _flow()
-	var ok := UI.primary(UI.button("Conferma", 180, 44, 20))
+	var ok := UI.primary(UI.button("Conferma", 180, 46, 20))
 	ok.disabled = tot > grain
 	ok.pressed.connect(func(): _provide(sel["moves"].duplicate()))
 	f.add_child(ok)
 	f.add_child(_btn("Nessuno sale", func(): _provide({})))
+
 
 
 func _death_ui() -> void:
@@ -1633,7 +1714,9 @@ func _death_ui() -> void:
 				if int(v) == -1:
 					free = true
 			dest = "cronache (%s)" % D.SECTION[sec]["name"] if free else ("sepoltura in mare" if st.port and (m["loc"] == "ship" or str(m["loc"]).begins_with("mission:")) else "tomba anonima")
-		f.add_child(_btn("Familiare %d (%s) » %s" % [m["gen"], st.loc_name(m["loc"]), "cronache (Bardo)" if sel["bard"] else dest], func(): _provide({"m": id2, "bard": sel["bard"]}), hr is Dictionary and int(hr.get("m", -1)) == id))
+		var db := _rich_btn([{"meeple": int(m["gen"])}, "(%s) » %s" % [st.loc_name(m["loc"]), "cronache (Bardo)" if sel["bard"] else dest]], hr is Dictionary and int(hr.get("m", -1)) == id)
+		db.pressed.connect(func(): _provide({"m": id2, "bard": sel["bard"]}))
+		f.add_child(db)
 		if board.member_shown(id):
 			targets["m:%d" % id] = board.member_pos(id)
 		target_map["m:%d" % id] = func(): _provide({"m": id2, "bard": sel["bard"]})
