@@ -5,6 +5,7 @@ extends SceneTree
 
 var main
 var types := {}
+var checks := 0
 
 func _initialize() -> void:
 	main = load("res://scenes/Main.tscn").instantiate()
@@ -53,9 +54,29 @@ func _run() -> void:
 					g.wiz["space"] = g._space_of(m["a"])
 					g.wiz["step"] = "act"
 					g._show_decision()
+			# pannello Artigiani: ogni mossa di bottega deve essere raggiungibile con gli interruttori
+			if req["type"] == "turn":
+				for m in req["moves"]:
+					var a0: Dictionary = m["a"]
+					if a0.get("a", "") != "craft":
+						continue
+					var avail := {}
+					for k in req["moves"].size():
+						var mm: Dictionary = req["moves"][k]
+						if mm["src"] == m["src"] and mm["a"].get("a", "") == "craft":
+							if not avail.has(mm["a"]["b"]):
+								avail[mm["a"]["b"]] = []
+							avail[mm["a"]["b"]].append({"i": k, "a": mm["a"]})
+					g._craft_pick(a0["b"], avail, a0)
+					var got: Dictionary = g._craft_match(a0["b"], avail[a0["b"]])
+					checks += 1
+					if got.is_empty() or var_to_str(got["a"]) != var_to_str(a0):
+						print("UITEST ERRORE artigiani: ", a0, " -> ", got)
+				g.sel = {}
 			var r = g.engine.ais[int(req["seat"])].decide(g.engine, int(req["seat"]), req)
 			g._provide(r)
 	var g2 = main.current
+	print("UITEST controlli artigiani: ", checks)
 	print("UITEST fine: ", g2.engine.game_over, " round ", g2.st.round_no, " decisioni ", types)
 	for r in g2.engine.results:
 		print("  ", g2.engine.pname(r["seat"]), " ", r["total"])

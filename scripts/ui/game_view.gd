@@ -832,6 +832,8 @@ func _turn_actions() -> void:
 			continue
 		if a.get("a", "") == "sail":
 			has_sail = true
+		if a.get("a", "") == "craft":
+			continue      # gli Artigiani hanno il loro pannello a interruttori
 		var ch := _chip(s, a)
 		var g: String = ch["group"]
 		if not groups.has(g):
@@ -850,6 +852,8 @@ func _turn_actions() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	act_body.add_child(box)
+	if sp == "crafts":
+		_crafts_panel(box, src, s)
 	for g in order:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -883,6 +887,269 @@ func _turn_actions() -> void:
 			sel = {}
 			_show_decision()))
 	_back_btn(f)
+
+
+## Artigiani: si sceglie la bottega, poi si accendono o spengono Addestra / Produci / Compra; il costo si
+## ricalcola a ogni clic e Conferma esegue la combinazione scelta.
+func _crafts_panel(box: VBoxContainer, src: Dictionary, s: int) -> void:
+	var moves: Array = pending["moves"]
+	var avail := {}          # bottega -> mosse (indice, azione)
+	var border := []
+	for i in moves.size():
+		var m: Dictionary = moves[i]
+		if m["src"] != src or m["a"].get("a", "") != "craft":
+			continue
+		var b: String = m["a"]["b"]
+		if not avail.has(b):
+			avail[b] = []
+			border.append(b)
+		avail[b].append({"i": i, "a": m["a"]})
+	if avail.is_empty():
+		return
+	var hm := _hint_move()
+	# stato iniziale: la bottega e le scelte consigliate dall'IA, altrimenti la prima
+	if not sel.has("cb") or not avail.has(sel["cb"]):
+		var start: String = border[0]
+		var ha: Dictionary = hm.get("a", {}) if not hm.is_empty() and hm["src"] == src else {}
+		if ha.get("a", "") == "craft":
+			start = ha["b"]
+		_craft_pick(start, avail, ha if ha.get("b", "") == start else {})
+	var b0: String = sel["cb"]
+	# 1. le botteghe
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	var head := UI.label("Bottega", 19, UI.INK, UI.font_bold)
+	head.custom_minimum_size = Vector2(150, 0)
+	row.add_child(head)
+	var fl := HFlowContainer.new()
+	fl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fl.add_theme_constant_override("h_separation", 5)
+	row.add_child(fl)
+	for b in border:
+		var b2: String = b
+		var gt: String = "coin" if b == "mill" else str(D.CRAFT[b]["good"])
+		var bb := _rich_btn([{"tok": gt}, D.CRAFT[b]["name"]], b == b0)
+		bb.pressed.connect(func():
+			_craft_pick(b2, avail, {})
+			_show_decision())
+		fl.add_child(bb)
+	box.add_child(HSeparator.new())
+	var cr: Dictionary = D.CRAFT[b0]
+	var opts: Array = avail[b0]
+	var has := func(how: String) -> bool:
+		for o in opts:
+			if str(o["a"].get("how", "")) == how:
+				return true
+		return false
+	# 2. gli interruttori
+	var row2 := HBoxContainer.new()
+	row2.add_theme_constant_override("separation", 8)
+	box.add_child(row2)
+	var head2 := UI.label(cr["name"], 19, UI.INK, UI.font_bold)
+	head2.custom_minimum_size = Vector2(150, 0)
+	row2.add_child(head2)
+	var fl2 := HFlowContainer.new()
+	fl2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fl2.add_theme_constant_override("h_separation", 5)
+	row2.add_child(fl2)
+	if b0 == "mill":
+		var mil_ok := false
+		for o in opts:
+			if o["a"].get("miller", false):
+				mil_ok = true
+		var mb := _rich_btn(["Macina: 2", {"tok": "grain"}, "» %d" % (5 if sel["miller"] else 2), {"tok": "coin"}], true)
+		mb.disabled = true
+		fl2.add_child(mb)
+		if mil_ok:
+			var tb := _rich_btn([("[x] " if sel["miller"] else "[ ] ") + "Usa il Mugnaio (5 monete)"], sel["miller"])
+			tb.pressed.connect(func():
+				sel["miller"] = not sel["miller"]
+				_show_decision())
+			fl2.add_child(tb)
+	else:
+		var can_train: bool = has.call("train") or has.call("trainmake")
+		var can_make: bool = has.call("make") or has.call("trainmake")
+		var here: bool = has.call("make")
+		if can_train:
+			var t := _rich_btn([("[x] " if sel["train"] else "[ ] ") + "Addestra un familiare", {"time": cr["train"]}], sel["train"])
+			t.tooltip_text = "Un familiare dalla fattoria va a lavorare in bottega"
+			t.pressed.connect(func():
+				sel["train"] = not sel["train"]
+				if sel["train"]:
+					sel["buy"] = false
+				_show_decision())
+			fl2.add_child(t)
+		if can_make:
+			var mk := _rich_btn([("[x] " if sel["make"] else "[ ] ") + "Produci"] + _good_parts(b0, sel["g"]) + [{"time": cr["make"]}], sel["make"])
+			mk.tooltip_text = "Produci la merce" + ("" if here else " (serve un familiare in bottega: accendi anche Addestra)")
+			mk.pressed.connect(func():
+				sel["make"] = not sel["make"]
+				if sel["make"]:
+					sel["buy"] = false
+				_show_decision())
+			fl2.add_child(mk)
+		if has.call("buy"):
+			var cost := []
+			if cr.has("grain"):
+				cost = ["%d" % int(cr["grain"]), {"tok": "grain"}]
+			else:
+				for c in cr["buy"]:
+					cost.append({"cube": c})
+			var bu := _rich_btn([("[x] " if sel["buy"] else "[ ] ") + "Compra invece"] + _good_parts(b0, sel["g"]) + ["con"] + cost, sel["buy"])
+			bu.tooltip_text = "Compri la merce senza familiari, pagando cubi (o grano)"
+			bu.pressed.connect(func():
+				sel["buy"] = not sel["buy"]
+				if sel["buy"]:
+					sel["train"] = false
+					sel["make"] = false
+				_show_decision())
+			fl2.add_child(bu)
+		# Stalle: cavallo o bue
+		if b0 == "stable" and (sel["make"] or sel["buy"]):
+			for g in ["horse", "ox"]:
+				var g2: String = g
+				var gb := _rich_btn([{"tok": g}], sel["g"] == g)
+				gb.tooltip_text = D.good_name(g)
+				gb.pressed.connect(func():
+					sel["g"] = g2
+					_show_decision())
+				fl2.add_child(gb)
+		# quale familiare addestrare (solo se ce n'è più di una generazione)
+		if sel["train"]:
+			var mids := []
+			for o in opts:
+				if o["a"].has("m") and not (int(o["a"]["m"]) in mids):
+					mids.append(int(o["a"]["m"]))
+			if mids.size() > 1:
+				for mid in mids:
+					var mid2: int = mid
+					var meb := _rich_btn([{"meeple": int(st.members[mid]["gen"])}], int(sel["m"]) == mid)
+					meb.tooltip_text = "Addestra il familiare %d" % st.members[mid]["gen"]
+					meb.pressed.connect(func():
+						sel["m"] = mid2
+						_show_decision())
+					fl2.add_child(meb)
+	# 3. riepilogo e conferma
+	var mv := _craft_match(b0, opts)
+	var row3 := HBoxContainer.new()
+	row3.add_theme_constant_override("separation", 8)
+	box.add_child(row3)
+	var sp3 := Control.new()
+	sp3.custom_minimum_size = Vector2(150, 0)
+	row3.add_child(sp3)
+	if mv.is_empty():
+		row3.add_child(UI.label("Questa combinazione non è possibile: accendi Produci o Addestra (o Compra).", 18, UI.RED, UI.font_italic))
+	else:
+		var a: Dictionary = mv["a"]
+		var parts: Array = ["Conferma:"]
+		var tm := 0
+		match str(a.get("how", "")):
+			"trainmake":
+				parts.append_array(["addestra", {"meeple": int(st.members[int(a["m"])]["gen"])}, "e produci"] + _good_parts(b0, a.get("g", "")))
+				tm = int(cr["train"]) + int(cr["make"])
+			"train":
+				parts.append_array(["addestra", {"meeple": int(st.members[int(a["m"])]["gen"])}])
+				tm = int(cr["train"])
+			"make":
+				parts.append_array(["produci"] + _good_parts(b0, a.get("g", "")))
+				tm = int(cr["make"])
+			"buy":
+				parts.append_array(["compra"] + _good_parts(b0, a.get("g", "")) + ["con"])
+				if cr.has("grain"):
+					parts.append_array(["%d" % int(cr["grain"]), {"tok": "grain"}])
+				else:
+					for c in cr["buy"]:
+						parts.append({"cube": c})
+		if b0 == "mill":
+			parts.append_array(["macina 2", {"tok": "grain"}, "» %d" % (5 if a.get("miller", false) else 2), {"tok": "coin"}])
+			tm = 2
+		if tm > 0:
+			parts.append_array(["=", {"time": tm}])
+		var ok := _rich_btn(parts)
+		UI.primary(ok)
+		ok.tooltip_text = Describe.action(st, s, a)
+		var idx: int = mv["i"]
+		ok.pressed.connect(func(): _provide(idx))
+		row3.add_child(ok)
+	box.add_child(HSeparator.new())
+
+
+func _good_parts(b: String, g: String) -> Array:
+	var cr: Dictionary = D.CRAFT[b]
+	var good: String = g if g != "" else str(cr.get("good", ""))
+	if int(cr.get("qty", 1)) > 1:
+		return ["%d" % int(cr["qty"]), {"tok": good}]
+	return [{"tok": good}]
+
+
+## Scelte iniziali per una bottega (dall'eventuale consiglio dell'IA).
+func _craft_pick(b: String, avail: Dictionary, ha: Dictionary) -> void:
+	var opts: Array = avail[b]
+	var hows := {}
+	var mid := -1
+	for o in opts:
+		hows[str(o["a"].get("how", ""))] = true
+		if o["a"].has("m") and mid < 0:
+			mid = int(o["a"]["m"])
+	sel["cb"] = b
+	sel["g"] = "horse" if b == "stable" else str(D.CRAFT[b].get("good", ""))
+	sel["m"] = mid
+	sel["miller"] = false
+	sel["buy"] = false
+	if hows.has("make"):
+		sel["train"] = false
+		sel["make"] = true
+	elif hows.has("trainmake"):
+		sel["train"] = true
+		sel["make"] = true
+	elif hows.has("train"):
+		sel["train"] = true
+		sel["make"] = false
+	else:
+		sel["train"] = false
+		sel["make"] = false
+		sel["buy"] = hows.has("buy")
+	if not ha.is_empty():
+		var how := str(ha.get("how", ""))
+		sel["train"] = how in ["train", "trainmake"]
+		sel["make"] = how in ["make", "trainmake"]
+		sel["buy"] = how == "buy"
+		if ha.has("g"):
+			sel["g"] = ha["g"]
+		if ha.has("m"):
+			sel["m"] = int(ha["m"])
+		sel["miller"] = ha.get("miller", false)
+
+
+## La mossa che corrisponde agli interruttori accesi.
+func _craft_match(b: String, opts: Array) -> Dictionary:
+	var want := ""
+	if b == "mill":
+		for o in opts:
+			if bool(o["a"].get("miller", false)) == bool(sel["miller"]):
+				return o
+		return {}
+	if sel["buy"]:
+		want = "buy"
+	elif sel["train"] and sel["make"]:
+		want = "trainmake"
+	elif sel["train"]:
+		want = "train"
+	elif sel["make"]:
+		want = "make"
+	if want == "":
+		return {}
+	for o in opts:
+		var a: Dictionary = o["a"]
+		if str(a.get("how", "")) != want:
+			continue
+		if want in ["make", "trainmake", "buy"] and a.has("g") and str(a["g"]) != str(sel["g"]):
+			continue
+		if want in ["train", "trainmake"] and int(a["m"]) != int(sel["m"]):
+			continue
+		return o
+	return {}
 
 
 ## Pulsante composto da testo e icone. parts: stringhe, {"tok": merce}, {"cube": colore},
