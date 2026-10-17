@@ -74,6 +74,14 @@ for key, col in [("ayBs8xn", "yellow"), ("G5DxNMs", "blue"), ("U72KguZ", "gray")
     save_jpg(im, out("farms", col + ".jpg"), 85)
 
 
+# clessidra del tempo (icona dei costi), ritagliata da una nuvola della fattoria
+from PIL import ImageDraw
+hg = Image.open(out("farms", "red.jpg")).convert("RGBA").crop((658, 40, 724, 128)).resize((96, 128), Image.LANCZOS)
+mk = Image.new("L", hg.size, 0)
+ImageDraw.Draw(mk).rounded_rectangle((0, 0, 95, 127), radius=26, fill=255)
+hg.putalpha(mk)
+hg.save(out("tokens", "time.png"))
+
 # ------------------------------------------------------------------ carte
 def sheet(key, cols, rows, n, prefix, size=None, q=86):
     im = Image.open(find(key)).convert("RGB")

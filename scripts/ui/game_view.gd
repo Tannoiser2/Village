@@ -816,11 +816,9 @@ func _turn_actions() -> void:
 	act_title.text = _who() + "%s · %s: scegli l'azione" % [Describe.src_text(src), D.SPACE[sp]["name"] if sp != "" else ""]
 	var hm := _hint_move()
 	var moves: Array = pending["moves"]
-	var col := GridContainer.new()
-	col.columns = 2
-	col.add_theme_constant_override("h_separation", 6)
-	col.add_theme_constant_override("v_separation", 5)
-	act_body.add_child(col)
+	# le azioni raggruppate per riga (un edificio, un tipo di azione), ogni scelta un pulsante breve con icone
+	var groups := {}
+	var order := []
 	var targets := {}
 	var has_sail := false
 	for i in moves.size():
@@ -832,21 +830,49 @@ func _turn_actions() -> void:
 			continue
 		if a.get("a", "") == "sail":
 			has_sail = true
+		var ch := _chip(s, a)
+		var g: String = ch["group"]
+		if not groups.has(g):
+			groups[g] = {"icon": ch.get("gicon", null), "items": []}
+			order.append(g)
 		var idx := i
 		var hl: bool = not hm.is_empty() and _same(hm, m)
-		var b := _btn(Describe.action(st, s, a), func(): _provide(idx), hl, 17, 42.0)
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size.x = (MW - 74) / 2.0
-		b.clip_text = true
-		b.tooltip_text = Describe.action(st, s, a) + ("\n(consiglio dell'IA)" if hl else "")
-		col.add_child(b)
-		# bersagli sul tabellone per scegliere il familiare o la città
+		groups[g]["items"].append({"parts": ch["parts"], "idx": idx, "hl": hl, "tip": Describe.action(st, s, a)})
+		# bersagli sul tabellone per scegliere la città
 		var key := _target_key(a)
 		if key != "" and not targets.has(key):
 			targets[key] = _target_pos(a)
 			target_map[key] = func(): _provide(idx)
 			target_info[key] = Describe.action(st, s, a)
 	board.set_targets(targets)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	act_body.add_child(box)
+	for g in order:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		box.add_child(row)
+		var head := HBoxContainer.new()
+		head.add_theme_constant_override("separation", 4)
+		head.custom_minimum_size = Vector2(150, 0)
+		if groups[g]["icon"] != null:
+			head.add_child(UI.icon_rect(groups[g]["icon"], Vector2(30, 30)))
+		var hl2 := UI.label(g, 19, UI.INK, UI.font_bold)
+		hl2.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(hl2)
+		row.add_child(head)
+		var fl := HFlowContainer.new()
+		fl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fl.add_theme_constant_override("h_separation", 5)
+		fl.add_theme_constant_override("v_separation", 4)
+		row.add_child(fl)
+		for it in groups[g]["items"]:
+			var idx2: int = it["idx"]
+			var b := _rich_btn(it["parts"], it["hl"])
+			b.tooltip_text = str(it["tip"]) + ("\n(consiglio dell'IA)" if it["hl"] else "")
+			b.pressed.connect(func(): _provide(idx2))
+			fl.add_child(b)
+		box.add_child(HSeparator.new())
 	var f := _flow()
 	if has_sail or (sp == "travel" and st.port):
 		var at_port: bool = st.players[s]["ship"]["at"] == "P"
@@ -855,6 +881,155 @@ func _turn_actions() -> void:
 			sel = {}
 			_show_decision()))
 	_back_btn(f)
+
+
+## Pulsante composto da testo e icone. parts: stringhe, {"tok": merce}, {"cube": colore},
+## {"meeple": generazione}, {"time": n}.
+func _rich_btn(parts: Array, hinted := false) -> Button:
+	var b := UI.button("", 0, 40, 17)
+	if hinted:
+		UI.selected(b, "meadow")
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 3)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.position = Vector2(10, 4)
+	for p in parts:
+		if p is String:
+			var l := UI.label(p, 17, UI.LIGHT, UI.font_bold)
+			l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			hb.add_child(l)
+		elif p.has("tok"):
+			hb.add_child(UI.icon_rect(UI.token(p["tok"]), Vector2(30, 30)))
+		elif p.has("cube"):
+			var c := UI.cube_icon(p["cube"], 18)
+			c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			hb.add_child(c)
+		elif p.has("time"):
+			var tb := HBoxContainer.new()
+			tb.add_theme_constant_override("separation", 1)
+			tb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tb.add_child(UI.icon_rect(UI.token("time"), Vector2(20, 27)))
+			var tl := UI.label(str(p["time"]), 18, UI.LIGHT, UI.font_bold)
+			tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			tb.add_child(tl)
+			tb.tooltip_text = Describe.tempi(int(p["time"]))
+			hb.add_child(tb)
+		elif p.has("meeple"):
+			var mc := Control.new()
+			mc.custom_minimum_size = Vector2(28, 30)
+			mc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var key: String = D.COLORS[st.players[int(pending.get("seat", 0))]["color"]]["key"]
+			var mi := UI.icon_rect(UI.tex("res://assets/ui/meeple_%s.png" % key), Vector2(28, 30))
+			mc.add_child(mi)
+			var nl := UI.label(str(p["meeple"]), 15, Color.WHITE, UI.font_bold)
+			nl.add_theme_color_override("font_outline_color", Color(0.1, 0.05, 0.02))
+			nl.add_theme_constant_override("outline_size", 4)
+			nl.position = Vector2(9, 6)
+			mc.add_child(nl)
+			hb.add_child(mc)
+	b.add_child(hb)
+	var fit := func():
+		b.custom_minimum_size = hb.get_combined_minimum_size() + Vector2(20, 8)
+	hb.minimum_size_changed.connect(fit)
+	fit.call()
+	return b
+
+
+## Un'azione come pulsante breve: gruppo (la riga) e parti (testo e icone).
+func _chip(s: int, a: Dictionary) -> Dictionary:
+	var pl: Dictionary = st.players[s]
+	match str(a.get("a", "none")):
+		"none":
+			return {"group": "Solo il cubo", "parts": ["Prendi solo il cubo, nessuna azione"]}
+		"harvest":
+			var k := 2
+			if int(pl["goods"]["plow"]) > 0 and int(pl["goods"]["ox"]) > 0:
+				k = 4
+			elif int(pl["goods"]["plow"]) > 0 and int(pl["goods"]["horse"]) > 0:
+				k = 3
+			k = mini(k, D.GRAIN_MAX - int(pl["grain"]))
+			return {"group": "Mietitura", "gicon": UI.token("grain"), "parts": ["Prendi +%d" % k, {"tok": "grain"}]}
+		"family":
+			if int(a["m"]) < 0:
+				var nb := st.next_unborn(s)
+				return {"group": "Famiglia", "gicon": _meeple_tex(s), "parts": ["Nasce", {"meeple": int(nb["gen"]) if not nb.is_empty() else 0}]}
+			var m: Dictionary = st.members[int(a["m"])]
+			return {"group": "Famiglia", "gicon": _meeple_tex(s), "parts": ["Riporta a casa", {"meeple": int(m["gen"])}, "(" + st.loc_name(m["loc"]) + ")"]}
+		"craft":
+			var b: String = a["b"]
+			if b == "mill":
+				var mil: bool = a.get("miller", false)
+				return {"group": "Mulino", "gicon": UI.token("coin"), "parts": ["2", {"tok": "grain"}, {"time": 2}, "»", "%d" % (5 if mil else 2), {"tok": "coin"}] + (["(Mugnaio)"] if mil else [])}
+			var cr: Dictionary = D.CRAFT[b]
+			var g: String = a.get("g", cr.get("good", ""))
+			var qty: int = int(cr.get("qty", 1))
+			var good := [{"tok": g}] if qty == 1 else ["%d" % qty, {"tok": g}]
+			var gi: Texture2D = UI.token(cr["good"]) if b != "stable" else UI.token("horse")
+			match str(a["how"]):
+				"make":
+					return {"group": cr["name"], "gicon": gi, "parts": ["Produci"] + good + [{"time": cr["make"]}]}
+				"trainmake":
+					return {"group": cr["name"], "gicon": gi, "parts": ["Addestra", {"meeple": int(st.members[int(a["m"])]["gen"])}, "e produci"] + good + [{"time": int(cr["train"]) + int(cr["make"])}]}
+				"train":
+					return {"group": cr["name"], "gicon": gi, "parts": ["Solo addestra", {"meeple": int(st.members[int(a["m"])]["gen"])}, {"time": cr["train"]}]}
+				"buy":
+					var cost := []
+					if cr.has("grain"):
+						cost = ["%d" % int(cr["grain"]), {"tok": "grain"}]
+					else:
+						for c in cr["buy"]:
+							cost.append({"cube": c})
+					return {"group": cr["name"], "gicon": gi, "parts": ["Compra"] + good + ["con"] + cost}
+		"market":
+			return {"group": "Mercato", "gicon": UI.tex("res://assets/cards/c_back.jpg"), "parts": ["Apri il giorno di mercato (prima vendita gratis)"]}
+		"travel":
+			var m2: Dictionary = st.members[int(a["m"])]
+			var fk := "G" if m2["loc"] == "farm" else str(m2["loc"]).substr(5)
+			var parts := [{"meeple": int(m2["gen"])}, "» %s" % D.CITY[a["to"]]["name"]]
+			if a.get("toll", false):
+				parts.append("(Gabelliere, gratis)")
+			else:
+				parts.append({"time": 2})
+				parts.append({"tok": "wagon"})
+				for c in D.road(fk, a["to"]):
+					parts.append({"cube": c})
+			if not (a["to"] in pl["cities"]):
+				match str(D.CITY[a["to"]]["reward"]):
+					"pp3": parts.append("» 3 punti")
+					"coin": parts.append_array(["»", {"tok": "coin"}])
+					"cubes2": parts.append("» 2 cubi")
+			return {"group": "Viaggio", "gicon": UI.token("wagon"), "parts": parts}
+		"council":
+			match str(a["how"]):
+				"priv":
+					return {"group": "Consiglio", "gicon": UI.token("scroll"), "parts": ["Solo un privilegio (fino al livello %d)" % st.max_council(s)]}
+				"enter", "up":
+					var m3: Dictionary = st.members[int(a["m"])]
+					var lv := 1 if a["how"] == "enter" else int(str(m3["loc"]).substr(8)) + 1
+					var pay: Array = [{"tok": "scroll"}] if a["pay"] == "scroll" else [{"cube": "gr"}, {"cube": "gr"}]
+					return {"group": "Consiglio", "gicon": UI.token("scroll"), "parts": [{"meeple": int(m3["gen"])}, "» livello %d con" % lv] + pay + [{"time": D.COUNCIL_TIME[lv - 1]}]}
+		"church":
+			var m4: Dictionary = st.members[int(a["m"])]
+			var pay2: Array = [{"cube": "br"}] if a["pay"] == "brown" else [{"time": 3}]
+			return {"group": "Chiesa", "gicon": _meeple_tex(s), "parts": [{"meeple": int(m4["gen"])}, "nel sacchetto nero con"] + pay2}
+		"inn":
+			var d: int = int(a["rot"])
+			var top := "mazzo vuoto"
+			if st.decks[d].size() > 0:
+				top = D.VILLAGERS[st.decks[d][-1]]["name"]
+			var parts2 := []
+			if int(a["m"]) >= 0:
+				parts2 = ["Manda", {"meeple": int(st.members[int(a["m"])]["gen"])}, {"time": 1}, "poi"]
+			parts2.append_array([{"time": 1}, "in fondo al mazzo %d: %s" % [d + 1, top]])
+			return {"group": "Locanda", "gicon": UI.token("beer"), "parts": parts2}
+		"sail":
+			return {"group": "Mare", "gicon": UI.token("cocoa"), "parts": [Describe.sail_text(st, s, a).replace("Mare: ", "").replace("Porto: ", "")]}
+	return {"group": "Altro", "parts": [Describe.action(st, s, a)]}
+
+
+func _meeple_tex(s: int) -> Texture2D:
+	return UI.tex("res://assets/ui/meeple_%s.png" % D.COLORS[st.players[s]["color"]]["key"])
 
 
 func _same(a: Dictionary, b: Dictionary) -> bool:
