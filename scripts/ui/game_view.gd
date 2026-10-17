@@ -852,8 +852,9 @@ func _turn_actions() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	act_body.add_child(box)
+	var confirm: Control = null
 	if sp == "crafts":
-		_crafts_panel(box, src, s)
+		confirm = _crafts_panel(box, src, s)
 	for g in order:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -880,6 +881,8 @@ func _turn_actions() -> void:
 			fl.add_child(b)
 		box.add_child(HSeparator.new())
 	var f := _flow()
+	if confirm != null:
+		f.add_child(confirm)
 	if has_sail or (sp == "travel" and st.port):
 		var at_port: bool = st.players[s]["ship"]["at"] == "P"
 		f.add_child(_btn("Salpa: capitano, carico e rotta sulla mappa…" if at_port else "Muovi la nave sulla mappa…", func():
@@ -891,7 +894,7 @@ func _turn_actions() -> void:
 
 ## Artigiani: si sceglie la bottega, poi si accendono o spengono Addestra / Produci / Compra; il costo si
 ## ricalcola a ogni clic e Conferma esegue la combinazione scelta.
-func _crafts_panel(box: VBoxContainer, src: Dictionary, s: int) -> void:
+func _crafts_panel(box: VBoxContainer, src: Dictionary, s: int) -> Control:
 	var moves: Array = pending["moves"]
 	var avail := {}          # bottega -> mosse (indice, azione)
 	var border := []
@@ -905,7 +908,7 @@ func _crafts_panel(box: VBoxContainer, src: Dictionary, s: int) -> void:
 			border.append(b)
 		avail[b].append({"i": i, "a": m["a"]})
 	if avail.is_empty():
-		return
+		return null
 	var hm := _hint_move()
 	# stato iniziale: la bottega e le scelte consigliate dall'IA, altrimenti la prima
 	if not sel.has("cb") or not avail.has(sel["cb"]):
@@ -1030,16 +1033,13 @@ func _crafts_panel(box: VBoxContainer, src: Dictionary, s: int) -> void:
 						sel["m"] = mid2
 						_show_decision())
 					fl2.add_child(meb)
-	# 3. riepilogo e conferma
+	# 3. riepilogo e conferma (il pulsante va in fondo, accanto a Indietro)
 	var mv := _craft_match(b0, opts)
-	var row3 := HBoxContainer.new()
-	row3.add_theme_constant_override("separation", 8)
-	box.add_child(row3)
-	var sp3 := Control.new()
-	sp3.custom_minimum_size = Vector2(150, 0)
-	row3.add_child(sp3)
+	box.add_child(HSeparator.new())
 	if mv.is_empty():
-		row3.add_child(UI.label("Questa combinazione non è possibile: accendi Produci o Addestra (o Compra).", 18, UI.RED, UI.font_italic))
+		var warn := UI.label("Combinazione non possibile: accendi Produci o Addestra (o Compra).", 18, UI.RED, UI.font_italic)
+		warn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		return warn
 	else:
 		var a: Dictionary = mv["a"]
 		var parts: Array = ["Conferma:"]
@@ -1071,8 +1071,7 @@ func _crafts_panel(box: VBoxContainer, src: Dictionary, s: int) -> void:
 		ok.tooltip_text = Describe.action(st, s, a)
 		var idx: int = mv["i"]
 		ok.pressed.connect(func(): _provide(idx))
-		row3.add_child(ok)
-	box.add_child(HSeparator.new())
+		return ok
 
 
 func _good_parts(b: String, g: String) -> Array:
