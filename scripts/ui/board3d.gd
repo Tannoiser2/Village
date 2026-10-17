@@ -40,7 +40,10 @@ var dyn: Node3D                     # pezzi ricostruiti a ogni aggiornamento
 var targets := {}
 var rings := {}
 var hover_key := ""
-var hint_key := ""                  # bersaglio consigliato dall'IA (anello verde)
+var hint_key := ""
+var chron_tile := {}                # 5 giocatori senza Locanda: tessere grandi sopra quelle stampate
+var graves_tile := {}
+var path_nodes: Node3D              # anteprima della rotta per mare                  # bersaglio consigliato dall'IA (anello verde)
 var _drag := false
 var _drag_moved := 0.0
 var _pan := false
@@ -183,6 +186,33 @@ func _tile(tex_path: String, w: float, h: float, pos: Vector3, thick := 0.08, ed
 func _build_board() -> void:
 	var name := ("innport" if st.port else "inn") if st.inn else ("port" if st.port else "base")
 	_tile("res://assets/board/board_%s.jpg" % name, D.BOARD_PX / 100.0, D.BOARD_PX / 100.0, Vector3.ZERO, 0.16)
+	if st.big_chron and not st.inn:
+		# 5 giocatori senza Locanda: le tessere nuove coprono quelle del tabellone
+		chron_tile = {"pos": px(Vector2(1700, 1790)) + Vector3(0, 0.03, 0), "size": Vector2(8.6, 8.6 * 980.0 / 1400.0)}
+		graves_tile = {"pos": px(Vector2(300, 1880)) + Vector3(0, 0.03, 0), "size": Vector2(3.6, 3.6 * 512.0 / 406.0)}
+		_tile("res://assets/board/chron5.jpg", chron_tile["size"].x, chron_tile["size"].y, chron_tile["pos"], 0.05)
+		_tile("res://assets/board/graves5.png", graves_tile["size"].x, graves_tile["size"].y, graves_tile["pos"], 0.05)
+
+
+## Le cronache si vedono sul tabellone (senza Locanda); con la Locanda stanno nel pannello di destra.
+func chron_on_map() -> bool:
+	return not st.inn
+
+
+func chron_pos(sec: String, i: int) -> Vector3:
+	if st.big_chron:
+		var q: Vector2 = D.CHRON_BIG_POS[sec][i]
+		var sz: Vector2 = chron_tile["size"]
+		return chron_tile["pos"] + Vector3((q.x / D.CHRON_BIG_PX.x - 0.5) * sz.x, 0.03, (q.y / D.CHRON_BIG_PX.y - 0.5) * sz.y)
+	return px(D.CHRON_SMALL_POS[sec][i])
+
+
+func grave_pos(i: int) -> Vector3:
+	if st.big_chron:
+		var q: Vector2 = D.GRAVES_BIG_POS[i]
+		var sz: Vector2 = graves_tile["size"]
+		return graves_tile["pos"] + Vector3((q.x / D.GRAVES_BIG_PX.x - 0.5) * sz.x, 0.03, (q.y / D.GRAVES_BIG_PX.y - 0.5) * sz.y)
+	return px(D.GRAVES_SMALL_POS[i])
 
 
 func _mat(c: Color, rough := 0.55) -> StandardMaterial3D:
@@ -337,9 +367,22 @@ func member_target(m: Dictionary, idx: int, cnt: int) -> Dictionary:
 	var lying := flat
 	var p := Vector3.ZERO
 	var vis := true
-	if l == "farm" or l.begins_with("chron:") or l.begins_with("grave:") or l == "bard":
-		# fattorie e cronache sono disegnate nei pannelli laterali
+	if l == "farm" or l == "bard":
+		# le fattorie sono nel pannello di sinistra, il Bardo con le cronache a destra
 		vis = false
+	elif l.begins_with("chron:"):
+		var parts := l.split(":")
+		if chron_on_map():
+			p = chron_pos(parts[1], int(parts[2]))
+			lying = true
+		else:
+			vis = false
+	elif l.begins_with("grave:"):
+		if chron_on_map():
+			p = grave_pos(int(l.substr(6)))
+			lying = true
+		else:
+			vis = false
 	elif l.begins_with("craft:"):
 		p = px(D.CRAFT[l.substr(6)]["pos"]) + _spread(idx, cnt)
 	elif l.begins_with("council:"):
@@ -495,7 +538,7 @@ func _refresh_port() -> void:
 
 # ================================================================== bersagli cliccabili
 
-## Bersagli cliccabili: chiave -> posizione (anello grande) o [posizione, raggio].
+## Bersagli cliccabili: chiave -> posizione (anello grande) o [posizione, raggio, etichetta facoltativa].
 func set_targets(t: Dictionary, hint := "") -> void:
 	for k in rings:
 		rings[k].queue_free()
@@ -524,6 +567,19 @@ func set_targets(t: Dictionary, hint := "") -> void:
 		r.position = pos + Vector3(0, 0.1, 0)
 		add_child(r)
 		rings[k] = r
+		if t[k] is Array and t[k].size() > 2 and str(t[k][2]) != "":
+			var l := Label3D.new()
+			l.text = str(t[k][2])
+			l.font = UI.font_bold
+			l.font_size = 64
+			l.pixel_size = 0.006
+			l.outline_size = 16
+			l.modulate = Color("#fff2c0")
+			l.outline_modulate = Color(0.15, 0.07, 0.02)
+			l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			l.no_depth_test = true
+			l.position = Vector3(0, 0.55, 0)
+			r.add_child(l)
 
 
 func _pick(pos: Vector2) -> String:
@@ -539,6 +595,54 @@ func _pick(pos: Vector2) -> String:
 			bd = dd
 			best = k
 	return best
+
+
+## Anteprima della rotta per mare: dischetti numerati sulle acque già scelte e la nave in fondo.
+func set_path(seat: int, path: Array) -> void:
+	if path_nodes != null:
+		path_nodes.queue_free()
+		path_nodes = null
+	if seat < 0 or path.is_empty():
+		refresh()
+		return
+	path_nodes = Node3D.new()
+	add_child(path_nodes)
+	var col: Color = D.COLORS[st.players[seat]["color"]]["color"]
+	for i in path.size():
+		var p := sea_pos(path[i]) + Vector3(0.0, TOP, 0.0)
+		var mi := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.26
+		cm.bottom_radius = 0.26
+		cm.height = 0.06
+		mi.mesh = cm
+		mi.material_override = _mat(col, 0.4)
+		mi.position = p + Vector3(0, 0.03, 0)
+		path_nodes.add_child(mi)
+		var l := Label3D.new()
+		l.text = str(i + 1)
+		l.font = UI.font_bold
+		l.font_size = 72
+		l.pixel_size = 0.006
+		l.outline_size = 16
+		l.modulate = Color.WHITE
+		l.outline_modulate = Color(0.1, 0.05, 0.02)
+		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		l.no_depth_test = true
+		l.position = p + Vector3(0, 0.45, 0)
+		path_nodes.add_child(l)
+	# la nave si sposta in anteprima in fondo alla rotta
+	if ships.has(seat):
+		var sh: Node3D = ships[seat]
+		var tw := create_tween()
+		tw.tween_property(sh, "position", sea_pos(path[-1]) + Vector3(0.3, TOP, 0.3), 0.25).set_trans(Tween.TRANS_SINE)
+
+
+## Inquadra il mare (per pianificare la rotta).
+func sea_view() -> void:
+	look_at_point(px(Vector2(1580, 470)) + Vector3(0, 0, 3.6), 16.5)
+	_pitch_t = 62.0
+	_yaw_t = _near_yaw(0.0)
 
 
 func space_pos(sp: String) -> Vector3:
@@ -593,6 +697,12 @@ func reset_view() -> void:
 	_pitch_t = PITCH0
 	_dist_t = DIST0
 	_focus_t = FOCUS0
+
+
+## Inquadra un punto del tavolo.
+func look_at_point(p: Vector3, d := 16.0) -> void:
+	_focus_t = Vector3(p.x, 0, p.z)
+	_dist_t = d
 
 
 func _near_yaw(a: float) -> float:

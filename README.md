@@ -28,9 +28,14 @@ le immagini vengono dal modulo Tabletop Simulator e non vanno distribuite pubbli
 - **Plance originali delle famiglie** nel pannello di sinistra: segnatempo sulle nuvole, grano nei campi,
   familiari nell'aia, cubi influenza sul muro di casa, segnalini del primo giocatore; accanto monete,
   merci, clienti serviti, carte e nave.
-- **Cronache del villaggio** e tombe anonime con il loro disegno originale nel pannello di destra (il
-  libro del tabellone o la tessera grande con la Locanda o in 5), sopra Locanda e Porto, sotto l'ultima
-  azione; il racconto completo è nel *Diario*.
+- **Cronache del villaggio** e tombe anonime sul tabellone (in 5 giocatori coperte dalle tessere grandi);
+  con la Locanda, che copre quelle stampate, si vedono nel pannello di destra con il disegno originale.
+  A destra anche mercato, Locanda, i tre mazzi di capitani del Porto e l'ultima azione; il racconto
+  completo è nel *Diario*.
+- **Viaggio per mare guidato**: si clicca la carta del capitano da ingaggiare, si carica la nave, poi si
+  clicca un'acqua vicina per ogni passo (lettere e nomi sulla mappa, la rotta numerata e la nave in
+  anteprima, costi in tempo e cubi sempre in vista) e si chiude con *Termina il movimento* (o *Termina e
+  approda* su un'isola).
 - **Regole complete** del gioco base (regolamento italiano): cubi influenza e peste dal sacchetto verde,
   pozzo, tempo della vita e morte con le cronache e le tombe anonime, mietitura, famiglia, artigiani
   (addestrare e produrre o comprare con i cubi), mulino, giorno di mercato con la coda dei clienti,

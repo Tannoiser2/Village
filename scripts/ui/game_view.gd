@@ -417,6 +417,13 @@ func _player_row(s: int, side: float) -> Control:
 		for it in sh["hold"]:
 			var kind := str(it).get_slice(":", 0)
 			hold.append("familiare" if kind == "member" else ("forziere" if kind == "chest" else ("grano" if kind == "grain" else D.good_name(kind))))
+		if int(sh["cap"]) >= 0:
+			var ct := UI.icon_rect(UI.captain_tex(int(sh["cap"])), Vector2(30, 48))
+			ct.mouse_filter = Control.MOUSE_FILTER_STOP
+			ct.tooltip_text = _captain_text(int(sh["cap"]))
+			cf.add_child(ct)
+			if cf.get_parent() == null:
+				vb.add_child(cf)
 		var where: String = "in porto" if sh["at"] == "P" else D.SEA[sh["at"]].get("name", "in mare")
 		var ct := "Nave %s%s%s" % [where, (" · capitano da %d" % int(D.CAPTAINS[int(sh["cap"])]["cost"])) if int(sh["cap"]) >= 0 and int(sh["cap"]) < 100 else (" · Ammiraglio" if int(sh["cap"]) == 100 else ""), (" · stiva: " + ", ".join(hold)) if not hold.is_empty() else ""]
 		vb.add_child(UI.wrap(ct, 15, iw, UI.INK2, UI.font_italic))
@@ -451,10 +458,12 @@ func _refresh_side() -> void:
 		if st.queue[i] >= 0:
 			qn += 1
 	side_box.add_child(UI.label("in coda %d · nella pila %d" % [qn, st.pile.size()], 17, UI.INK2, UI.font_italic))
-	side_box.add_child(UI.title("Cronache del villaggio", 26))
-	var cp := ChronPanel.new()
-	cp.setup(st, RW - 48)
-	side_box.add_child(cp)
+	if not board.chron_on_map():
+		# con la Locanda le cronache non sono sul tabellone: si vedono qui
+		side_box.add_child(UI.title("Cronache del villaggio", 26))
+		var cp := ChronPanel.new()
+		cp.setup(st, RW - 48)
+		side_box.add_child(cp)
 	if st.inn:
 		side_box.add_child(UI.title("Locanda", 26))
 		var lf := HBoxContainer.new()
@@ -474,13 +483,22 @@ func _refresh_side() -> void:
 			lf.add_child(dv)
 		side_box.add_child(lf)
 	if st.port:
-		side_box.add_child(UI.title("Porto", 26))
-		var cf := HFlowContainer.new()
-		cf.add_theme_constant_override("h_separation", 4)
+		side_box.add_child(UI.title("Porto · capitani", 26))
+		side_box.add_child(UI.wrap("Per salpare prendi un cubo dallo spazio Viaggio e ingaggia uno di questi capitani.", 15, RW - 50, UI.INK2, UI.font_italic))
 		for k in 3:
-			var n: int = st.captains[k].size()
-			cf.add_child(UI.label("capitani da %d: %d" % [k + 1, n], 17, UI.INK2))
-		side_box.add_child(cf)
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 3)
+			var lab := UI.label("%d %s" % [k + 1, "moneta" if k == 0 else "monete"], 15, UI.INK, UI.font_bold)
+			lab.custom_minimum_size = Vector2(66, 0)
+			row.add_child(lab)
+			if st.captains[k].is_empty():
+				row.add_child(UI.label("finiti", 15, UI.INK2, UI.font_italic))
+			for c in st.captains[k]:
+				var t := UI.icon_rect(UI.captain_tex(c), Vector2(48, 76))
+				t.mouse_filter = Control.MOUSE_FILTER_STOP
+				t.tooltip_text = _captain_text(c)
+				row.add_child(t)
+			side_box.add_child(row)
 		var mi := []
 		for isl in D.MISSIONS:
 			if int(st.missions[isl]) >= 0:
@@ -621,6 +639,7 @@ func _show_decision() -> void:
 
 
 func _provide(r) -> void:
+	_leave_sea()
 	pending = {}
 	wiz = {}
 	_clear_body()
@@ -652,10 +671,18 @@ func _back_btn(f: Container) -> void:
 	var b := UI.button("Indietro", 0, 44, 19)
 	b.add_theme_stylebox_override("normal", UI.plank("wood_dark"))
 	b.pressed.connect(func():
+		_leave_sea()
 		wiz = {}
 		sel = {}
 		_show_decision())
 	f.add_child(b)
+
+
+## Fine della pianificazione per mare: via l'anteprima della rotta, la telecamera torna al villaggio.
+func _leave_sea() -> void:
+	if wiz.get("step", "") == "sail":
+		board.set_path(-1, [])
+		board.reset_view()
 
 
 # ------------------------------------------------------------------ turno
@@ -822,7 +849,8 @@ func _turn_actions() -> void:
 	board.set_targets(targets)
 	var f := _flow()
 	if has_sail or (sp == "travel" and st.port):
-		f.add_child(_btn("Rotta a scelta sulla mappa…", func():
+		var at_port: bool = st.players[s]["ship"]["at"] == "P"
+		f.add_child(_btn("Salpa: capitano, carico e rotta sulla mappa…" if at_port else "Muovi la nave sulla mappa…", func():
 			wiz["step"] = "sail"
 			sel = {}
 			_show_decision()))
@@ -855,27 +883,46 @@ func _sail_ui() -> void:
 	var src: Dictionary = wiz["src"]
 	if not sel.has("path"):
 		sel = {"cap": int(sh["cap"]) if sh["at"] != "P" else -2, "helm": false, "load": [], "path": [], "land": false}
+		board.sea_view()
 	var f := _flow()
-	# 1. capitano
+	# 1. capitano: le carte dei tre mazzi, si clicca quella da ingaggiare
 	if sh["at"] == "P" and int(sel["cap"]) == -2:
-		act_title.text = _who() + "Scegli il capitano da ingaggiare (gli altri passi oltre il primo si pagano come indicato)"
-		for c in st.hireable(s):
+		act_title.text = _who() + "1 · Ingaggia un capitano (senza capitano la nave non parte). Il primo passo è sempre gratis, gli altri si pagano con i cubi indicati sulla carta."
+		var ok_caps: Array = st.hireable(s)
+		var shown := {}
+		var all_caps := []
+		for d in st.captains:
+			for c in d:
+				var cs: Dictionary = D.CAPTAINS[c]
+				var key := "%d/%s" % [cs["cost"], ",".join(cs["pay"])]
+				if not shown.has(key):
+					shown[key] = true
+					all_caps.append(c)
+		if 100 in ok_caps:
+			all_caps.append(100)
+		for c in all_caps:
 			var c2: int = c
-			var spec: Dictionary = D.ADMIRAL if c == 100 else D.CAPTAINS[c]
-			var t := "Ammiraglio" if c == 100 else "Capitano da %d" % int(spec["cost"])
-			t += ": %s » %d %s" % [Describe.cubes_text(spec["pay"]), spec["steps"], "passo" if int(spec["steps"]) == 1 else "passi"]
-			var b := _btn(t, func():
+			var can: bool = c in ok_caps
+			var vb := VBoxContainer.new()
+			vb.add_theme_constant_override("separation", 2)
+			var b := _card_button(UI.captain_tex(c), Vector2(76, 120))
+			b.disabled = not can
+			b.tooltip_text = _captain_text(c) + ("" if can else "\n(non hai abbastanza monete)")
+			b.pressed.connect(func():
 				sel["cap"] = c2
 				_show_decision())
-			b.icon = UI.captain_tex(c)
-			b.expand_icon = true
-			b.custom_minimum_size = Vector2(0, 70)
-			f.add_child(b)
-		_back_btn(f)
+			vb.add_child(b)
+			var spec: Dictionary = D.ADMIRAL if c == 100 else D.CAPTAINS[c]
+			var cl := UI.label("Ammiraglio" if c == 100 else "%d %s" % [spec["cost"], "moneta" if int(spec["cost"]) == 1 else "monete"], 15, UI.INK if can else UI.INK2, UI.font_bold)
+			cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			vb.add_child(cl)
+			f.add_child(vb)
+		var f0 := _flow()
+		_back_btn(f0)
 		return
 	# 2. carico (in porto)
 	if sh["at"] == "P" and not sel.get("loaded", false):
-		act_title.text = _who() + "Carica la nave: fino a 3 pezzi di tipo diverso (poi scegli la rotta)"
+		act_title.text = _who() + "2 · Carica la nave: fino a 3 pezzi, tutti di tipo diverso (clicca per mettere o togliere), poi «Scegli la rotta»."
 		var items := []
 		for g in ["horse", "ox", "plow", "wagon", "scroll"]:
 			if int(pl["goods"][g]) > 0:
@@ -897,24 +944,31 @@ func _sail_ui() -> void:
 					if not (it2.get_slice(":", 0) in kinds) or st.has_card(s, "quartermaster"):
 						sel["load"].append(it2)
 				_show_decision(), on)
+			b2.icon = UI.tex("res://assets/ui/meeple_%s.png" % D.COLORS[pl["color"]]["key"]) if kind == "member" else UI.token(kind)
+			b2.expand_icon = true
+			b2.custom_minimum_size = Vector2(0, 52)
 			f.add_child(b2)
+		if items.is_empty():
+			f.add_child(UI.label("Non hai niente da caricare.", 18, UI.INK2, UI.font_italic))
 		if st.has_card(s, "helmsman"):
 			var hb := _btn(("» " if sel["helm"] else "") + "Timoniere (1 passo gratis in più)", func():
 				sel["helm"] = not sel["helm"]
 				_show_decision(), sel["helm"])
 			f.add_child(hb)
-		var ok := UI.primary(UI.button("Scegli la rotta", 240, 44, 20))
+		var f2 := _flow()
+		var ok := UI.primary(UI.button("Scegli la rotta", 240, 46, 20))
 		ok.pressed.connect(func():
 			sel["loaded"] = true
 			_show_decision())
-		f.add_child(ok)
-		_back_btn(f)
+		f2.add_child(ok)
+		_back_btn(f2)
 		return
-	# 3. rotta
+	# 3. rotta: un clic per ogni passo sulla mappa
 	var path: Array = sel["path"]
 	var cur: String = path[-1] if not path.is_empty() else str(sh["at"])
 	var spec2: Dictionary = (D.ADMIRAL if int(sel["cap"]) == 100 else D.CAPTAINS[int(sel["cap"])]) if int(sel["cap"]) >= 0 else {}
-	var cost := st.step_cost(spec2, path.size(), sel["helm"] or bool(sh["helm"]))
+	var helm: bool = sel["helm"] or bool(sh["helm"])
+	var cost := st.step_cost(spec2, path.size(), helm)
 	var tt := 0
 	for nd in path:
 		if D.SEA[nd]["kind"] == "time":
@@ -929,56 +983,130 @@ func _sail_ui() -> void:
 			probe["load"] = sel["load"].duplicate()
 			probe["helm"] = sel["helm"]
 		afford = st.sail_valid(s, {"k": "move", "src": src, "a": probe})
-	act_title.text = _who() + "Rotta: clicca le acque vicine sulla mappa. %d %s, %s%s%s" % [path.size(), "tratto" if path.size() == 1 else "tratti", Describe.tempi(tt),
-		(", " + Describe.cubes_text(cost)) if not cost.is_empty() else ", nessun cubo", "" if afford else " (non puoi pagarlo!)"]
+	act_title.text = _who() + ("3 · Muovi la nave: clicca sulla mappa l'acqua vicina dove andare (un clic per passo), poi «Termina il movimento»." if path.is_empty() else "3 · Rotta: continua a cliccare le acque vicine oppure termina il movimento.")
+	# riepilogo: carta del capitano, rotta, costi
+	var info := HBoxContainer.new()
+	info.add_theme_constant_override("separation", 10)
+	act_body.add_child(info)
+	if int(sel["cap"]) >= 0:
+		var ct := UI.icon_rect(UI.captain_tex(int(sel["cap"])), Vector2(58, 92))
+		ct.mouse_filter = Control.MOUSE_FILTER_STOP
+		ct.tooltip_text = _captain_text(int(sel["cap"]))
+		info.add_child(ct)
+	var iv := VBoxContainer.new()
+	iv.add_theme_constant_override("separation", 0)
+	info.add_child(iv)
+	var names := ["Porto" if str(sh["at"]) == "P" else _sea_name(str(sh["at"]))]
+	for nd in path:
+		names.append(_sea_name(nd))
+	iv.add_child(UI.wrap("Rotta: " + " » ".join(names), 19, MW - 160, UI.INK, UI.font_bold))
+	var per := "ogni passo in più costa " + (Describe.cubes_text(spec2["pay"]) if spec2.has("pay") else "—")
+	if spec2.get("steps", 1) == 2:
+		per = "ogni %s fa fare fino a 2 passi in più" % Describe.cubes_text(spec2["pay"])
+	iv.add_child(UI.wrap("Passi %d (il primo%s gratis; %s)" % [path.size(), " e il secondo, con il Timoniere," if helm else "", per], 17, MW - 160, UI.INK2))
+	var costs := "Tempo perso: %d" % tt + (" · cubi da pagare: " + Describe.cubes_text(cost) if not cost.is_empty() else " · nessun cubo da pagare")
+	if not afford and not path.is_empty():
+		costs += "  —  non puoi pagarlo: togli un passo"
+	iv.add_child(UI.wrap(costs, 17, MW - 160, UI.RED if (not afford and not path.is_empty()) else UI.INK2, UI.font_bold if (not afford and not path.is_empty()) else UI.font_body))
+	# acque vicine: anelli con lettera sulla mappa e pulsanti con la stessa lettera
 	var targets := {}
+	var letter := 0
+	var mv := _flow()
 	for nb in D.sea_neighbors(cur):
 		if nb == "P":
 			continue
-		targets["sea:" + nb] = board.sea_pos(nb)
 		var nb2: String = nb
+		var tag: String = D.SEA[nb].get("name", "")
+		if tag == "":
+			tag = "Acque del tempo %s" % "ABCDEF"[letter]
+			letter += 1
+		var short: String = tag.replace("Acque del tempo ", "") if D.SEA[nb]["kind"] == "time" else tag.replace("Isola del ", "").replace("Isola ", "").capitalize()
+		targets["sea:" + nb] = [board.sea_pos(nb), 0.5, short]
 		target_map["sea:" + nb] = func():
 			sel["path"].append(nb2)
 			_show_decision()
-		target_info["sea:" + nb] = D.SEA[nb].get("name", "Acque del tempo: perdi 1 tempo")
-		f.add_child(_btn("» " + D.SEA[nb].get("name", "acque del tempo"), func():
+		target_info["sea:" + nb] = tag + (" (perdi 1 tempo)" if D.SEA[nb]["kind"] == "time" else "")
+		mv.add_child(_btn("Vai a: " + tag + (" (−1 tempo)" if D.SEA[nb]["kind"] == "time" else ""), func():
 			sel["path"].append(nb2)
 			_show_decision()))
 	board.set_targets(targets)
+	board.set_path(s, path)
+	var f3 := _flow()
+	var at_island: bool = not path.is_empty() and D.SEA[cur]["kind"] == "island"
+	var mk := func(land: bool) -> Dictionary:
+		var a := {"a": "sail", "path": sel["path"].duplicate(), "land": land}
+		if sh["at"] == "P":
+			a["cap"] = sel["cap"]
+			a["load"] = sel["load"].duplicate()
+			a["helm"] = sel["helm"]
+		return {"k": "move", "src": src, "a": a}
 	if not path.is_empty():
-		var undo := _btn("Togli l'ultimo tratto", func():
+		if at_island:
+			var b3 := UI.primary(UI.button("Termina il movimento e approda a %s" % D.SEA[cur]["name"], 0, 48, 20))
+			b3.disabled = not afford
+			b3.pressed.connect(func(): _provide(mk.call(true)))
+			f3.add_child(b3)
+		var b4 := UI.button("Termina il movimento qui" + (" (senza approdare)" if at_island else ""), 0, 48, 20)
+		if not at_island:
+			UI.primary(b4)
+		b4.disabled = not afford
+		b4.pressed.connect(func(): _provide(mk.call(false)))
+		f3.add_child(b4)
+		var undo := _btn("Annulla l'ultimo passo", func():
 			sel["path"].pop_back()
 			_show_decision())
-		f.add_child(undo)
-	var at_island: bool = not path.is_empty() and D.SEA[cur]["kind"] == "island"
-	if afford and not path.is_empty():
-		var mk := func(land: bool) -> Dictionary:
-			var a := {"a": "sail", "path": sel["path"].duplicate(), "land": land}
-			if sh["at"] == "P":
-				a["cap"] = sel["cap"]
-				a["load"] = sel["load"].duplicate()
-				a["helm"] = sel["helm"]
-			return {"k": "move", "src": src, "a": a}
-		if at_island:
-			var b3 := UI.primary(UI.button("Approda a %s" % D.SEA[cur]["name"], 0, 44, 19))
-			b3.pressed.connect(func(): _provide(mk.call(true)))
-			f.add_child(b3)
-		var b4 := UI.button("Fermati qui" + (" senza approdare" if at_island else ""), 0, 44, 19)
-		b4.pressed.connect(func(): _provide(mk.call(false)))
-		f.add_child(b4)
+		f3.add_child(undo)
 	if st.has_card(s, "cartographer") and path.is_empty():
 		for isl in D.ISLANDS:
 			if isl == sh["at"]:
 				continue
 			var isl2: String = isl
-			f.add_child(_btn("Cartografo: vai a %s" % D.SEA[isl]["name"], func():
+			f3.add_child(_btn("Cartografo: vai a %s" % D.SEA[isl]["name"], func():
 				var a2 := {"a": "sail", "carto": isl2, "land": true, "path": []}
 				if sh["at"] == "P":
 					a2["cap"] = sel["cap"]
 					a2["load"] = sel["load"].duplicate()
 					a2["helm"] = sel["helm"]
 				_provide({"k": "move", "src": src, "a": a2})))
-	_back_btn(f)
+	_back_btn(f3)
+
+
+## Pulsante che mostra una carta intera (bordo dorato al passaggio, scuro se non disponibile).
+func _card_button(t: Texture2D, sz: Vector2) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = sz
+	b.icon = t
+	b.expand_icon = true
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+	for k in ["normal", "hover", "pressed", "disabled", "focus"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0, 0, 0, 0)
+		sb.set_content_margin_all(2)
+		sb.set_border_width_all(3 if k == "hover" else 0)
+		sb.border_color = UI.GOLD
+		b.add_theme_stylebox_override(k, sb)
+	b.add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.35))
+	b.add_theme_color_override("icon_hover_color", Color(1.1, 1.1, 1.1))
+	return b
+
+
+func _sea_name(nd: String) -> String:
+	if nd == "P":
+		return "Porto"
+	return str(D.SEA[nd].get("name", "acque del tempo"))
+
+
+func _captain_text(c: int) -> String:
+	if c == 100:
+		return "Ammiraglio: non costa monete; il primo passo è gratis, ogni passo in più costa 1 cubo a scelta."
+	var cs: Dictionary = D.CAPTAINS[c]
+	var t := "Capitano da %d %s: il primo passo è gratis; " % [cs["cost"], "moneta" if int(cs["cost"]) == 1 else "monete"]
+	if int(cs["steps"]) == 2:
+		t += "ogni %s ti fa fare fino a 2 passi in più." % Describe.cubes_text(cs["pay"])
+	else:
+		t += "ogni passo in più costa %s." % Describe.cubes_text(cs["pay"])
+	return t
 
 
 # ------------------------------------------------------------------ altre decisioni
