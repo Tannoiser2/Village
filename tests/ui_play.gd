@@ -40,7 +40,15 @@ func _run() -> void:
 			# ogni tanto prova anche il passo successivo della scelta del turno
 			if req["type"] == "turn" and not req["moves"].is_empty():
 				var m: Dictionary = req["moves"][0]
-				g._pick_src(m["src"])
+				# il cubo si prende cliccandolo sulla mappa
+				if m["src"]["t"] == "space":
+					var key := "cube:%s:%s" % [m["src"]["sp"], m["src"]["c"]]
+					if not g.target_map.has(key) or not g.board.targets.has(key):
+						print("UITEST ERRORE: manca il bersaglio ", key)
+					else:
+						g._on_target(key)
+				else:
+					g._pick_src(m["src"])
 				if g.wiz.get("step", "") == "space":
 					g.wiz["space"] = g._space_of(m["a"])
 					g.wiz["step"] = "act"

@@ -1,6 +1,6 @@
 extends SceneTree
 ## Screenshot automatici dell'interfaccia (serve un display: xvfb-run).
-## godot --path . -s res://tests/shot.gd -- <modo: menu|rules|game> [giocatori] [espansioni inn,port,goals o -] [decisioni prima della foto]
+## godot --path . -s res://tests/shot.gd -- <modo: menu|rules|game> [giocatori] [espansioni inn,port,goals o -] [decisioni prima della foto] [altre decisioni per la foto finale]
 
 var main
 var n := 0
@@ -99,12 +99,26 @@ func _run() -> void:
 		await shot("actions")
 		gg.wiz = {}
 		gg._show_decision()
-	var g2 = gv()
-	g2._toggle_flat()
-	await wait(30)
-	await shot("flat")
-	g2._toggle_flat()
-	g2.board.farm_view(0)
-	await wait(40)
-	await shot("farm")
+	# più avanti nella partita (cronache e fattorie piene)
+	var more := int(args[4]) if args.size() > 4 else 0
+	if more > 0:
+		gg.wiz = {}
+		gg._show_decision()
+		done = 0
+		guard = 0
+		while done < more and guard < 20000:
+			guard += 1
+			await wait(2)
+			var g3 = gv()
+			if not g3.modal.get_children().is_empty():
+				g3._clear_modal()
+				g3.engine.provide_decision(null)
+				continue
+			if not g3.pending.is_empty():
+				if done == more - 1:
+					break
+				auto_answer()
+				done += 1
+		await wait(30)
+		await shot("late")
 	quit()

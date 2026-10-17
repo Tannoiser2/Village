@@ -1,18 +1,15 @@
 class_name Board3D
 extends Node3D
-## Il villaggio sul tavolo: tabellone (con Locanda, Birrificio e Porto quando servono), le fattorie dei
-## giocatori, i familiari (i meeple del modulo TTS, con il numero della generazione), cubi, segnalini,
-## clienti, navi. Due modi:
-## - 3D: trascina per ruotare, rotella o pizzico per lo zoom, tasto destro (o Maiusc+trascina) per spostare;
-## - 2D: vista dall'alto piatta (telecamera ortogonale, familiari sdraiati), trascina per spostare.
-## Clic sugli anelli luminosi per scegliere.
+## Il villaggio sul tavolo: tabellone (con Locanda, Birrificio e Porto quando servono), i familiari (i meeple
+## del modulo TTS, con il numero della generazione), cubi, segnalini, clienti, navi. Le plance delle famiglie
+## e le cronache stanno nei pannelli ai lati. Trascina per ruotare, rotella o pizzico per lo zoom,
+## tasto destro (o Maiusc+trascina) per spostare. Clic sugli anelli luminosi (o sui cubi) per scegliere.
 
 signal target_clicked(key: String)
 signal target_hovered(key: String)
 
 const D = preload("res://scripts/data/vl_data.gd")
 const HALF := 11.225                # metà del tabellone in unità (2245 px / 100)
-const FS := 6.0                     # lato di una fattoria
 const MEEPLE_SCALE := 0.47
 const TOP := 0.012                  # altezza dei pezzi appoggiati sul tabellone
 
@@ -20,13 +17,16 @@ var eng: VLEngine
 var st: VLState
 var cam: Camera3D
 var yaw := 0.0
-var pitch := 56.0
-var dist := 31.0
-var focus := Vector3(0, 0, 4.6)
+const PITCH0 := 58.0
+const DIST0 := 30.5
+const FOCUS0 := Vector3(-0.7, 0, 3.1)
+var pitch := PITCH0
+var dist := DIST0
+var focus := FOCUS0
 var _yaw_t := 0.0
-var _pitch_t := 56.0
-var _dist_t := 31.0
-var _focus_t := Vector3(0, 0, 4.6)
+var _pitch_t := PITCH0
+var _dist_t := DIST0
+var _focus_t := FOCUS0
 var flat := false                   # vista 2D
 
 var meeple_mesh: Mesh
@@ -40,6 +40,7 @@ var dyn: Node3D                     # pezzi ricostruiti a ogni aggiornamento
 var targets := {}
 var rings := {}
 var hover_key := ""
+var hint_key := ""                  # bersaglio consigliato dall'IA (anello verde)
 var _drag := false
 var _drag_moved := 0.0
 var _pan := false
@@ -47,9 +48,6 @@ var _touches := {}
 var _pinch_d := 0.0
 var _t := 0.0
 var mats := {}
-var farm_center := {}               # posto -> Vector3
-var chron_tile := {}                # dove stanno le cronache grandi: {"pos","size"} e le tombe
-var graves_tile := {}
 
 
 static func px(p: Vector2) -> Vector3:
@@ -66,7 +64,6 @@ func _ready() -> void:
 	_build_env()
 	_build_table()
 	_build_board()
-	_build_farms()
 	dyn = Node3D.new()
 	add_child(dyn)
 	for m in st.members:
@@ -186,42 +183,6 @@ func _tile(tex_path: String, w: float, h: float, pos: Vector3, thick := 0.08, ed
 func _build_board() -> void:
 	var name := ("innport" if st.port else "inn") if st.inn else ("port" if st.port else "base")
 	_tile("res://assets/board/board_%s.jpg" % name, D.BOARD_PX / 100.0, D.BOARD_PX / 100.0, Vector3.ZERO, 0.16)
-	if st.big_chron:
-		if st.inn:
-			# cronache e tombe nuove sotto il tabellone (Locanda e Birrificio coprono quelle stampate)
-			chron_tile = {"pos": Vector3(HALF + 4.9, 0.0, -1.2), "size": Vector2(8.4, 8.4 * 980.0 / 1400.0)}
-			graves_tile = {"pos": Vector3(HALF + 2.6, 0.0, 4.6), "size": Vector2(3.4, 3.4 * 512.0 / 406.0)}
-		else:
-			# 5 giocatori senza Locanda: le tessere nuove coprono quelle del tabellone
-			chron_tile = {"pos": px(Vector2(1700, 1790)) + Vector3(0, 0.03, 0), "size": Vector2(8.6, 8.6 * 980.0 / 1400.0)}
-			graves_tile = {"pos": px(Vector2(300, 1880)) + Vector3(0, 0.03, 0), "size": Vector2(3.6, 3.6 * 512.0 / 406.0)}
-		_tile("res://assets/board/chron5.jpg", chron_tile["size"].x, chron_tile["size"].y, chron_tile["pos"], 0.05)
-		_tile("res://assets/board/graves5.png", graves_tile["size"].x, graves_tile["size"].y, graves_tile["pos"], 0.05)
-
-
-func _build_farms() -> void:
-	var nn := st.n
-	for s in nn:
-		var x := (float(s) - (nn - 1) / 2.0) * (FS + 0.8)
-		var c := Vector3(x, 0, HALF + 0.9 + FS / 2.0)
-		farm_center[s] = c
-		var key: String = D.COLORS[st.players[s]["color"]]["key"]
-		_tile("res://assets/farms/%s.jpg" % key, FS, FS, c, 0.07)
-		var nm := Label3D.new()
-		nm.text = st.players[s]["name"]
-		nm.font = UI.font_title if UI.font_title != null else null
-		nm.font_size = 96
-		nm.pixel_size = 0.006
-		nm.outline_size = 18
-		nm.modulate = D.COLORS[st.players[s]["color"]]["color"].lightened(0.25)
-		nm.outline_modulate = Color(0.12, 0.06, 0.02)
-		nm.rotation_degrees = Vector3(-90, 0, 0)
-		nm.position = c + Vector3(0, 0.03, -FS / 2.0 - 0.32)
-		add_child(nm)
-
-
-func farm_pos(s: int, p: Vector2) -> Vector3:
-	return farm_center[s] + Vector3((p.x / 1024.0 - 0.5) * FS, 0, (p.y / 1024.0 - 0.5) * FS)
 
 
 func _mat(c: Color, rough := 0.55) -> StandardMaterial3D:
@@ -312,12 +273,22 @@ func _disc(pos: Vector3, c: Color, r := 0.15, h := 0.08) -> MeshInstance3D:
 
 func _quad(tex_path: String, pos: Vector3, w: float, h: float, alpha := true) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(w, 0.03, h)
-	mi.mesh = bm
+	# un piano (non una scatola: la scatola divide la texture in sei facce)
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(w, h)
+	mi.mesh = pm
 	mi.material_override = _tex_mat(tex_path, alpha)
-	mi.position = pos + Vector3(0, 0.02, 0)
+	mi.position = pos + Vector3(0, 0.035, 0)
 	dyn.add_child(mi)
+	if not alpha:
+		# spessore del cartoncino
+		var edge := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(w, 0.03, h)
+		edge.mesh = bm
+		edge.material_override = _mat(Color("#2c1d3a"), 0.9)
+		edge.position = pos + Vector3(0, 0.017, 0)
+		dyn.add_child(edge)
 	return mi
 
 
@@ -355,7 +326,6 @@ func refresh() -> void:
 	_refresh_meeples()
 	_refresh_spaces()
 	_refresh_market()
-	_refresh_farms()
 	_refresh_markers()
 	if st.port:
 		_refresh_port()
@@ -367,11 +337,9 @@ func member_target(m: Dictionary, idx: int, cnt: int) -> Dictionary:
 	var lying := flat
 	var p := Vector3.ZERO
 	var vis := true
-	if l == "farm":
-		var cols := 4
-		var r := idx / cols
-		var c := idx % cols
-		p = farm_pos(s, Vector2(D.YARD.position.x + 45 + c * 85, D.YARD.position.y + 60 + r * 110))
+	if l == "farm" or l.begins_with("chron:") or l.begins_with("grave:") or l == "bard":
+		# fattorie e cronache sono disegnate nei pannelli laterali
+		vis = false
 	elif l.begins_with("craft:"):
 		p = px(D.CRAFT[l.substr(6)]["pos"]) + _spread(idx, cnt)
 	elif l.begins_with("council:"):
@@ -384,42 +352,12 @@ func member_target(m: Dictionary, idx: int, cnt: int) -> Dictionary:
 		p = px(Vector2(1468, 1926)) + _spread(idx, cnt, 0.36)
 	elif l.begins_with("mission:"):
 		p = px(D.SEA[l.substr(8)]["mpos"])
-	elif l.begins_with("chron:"):
-		var parts := l.split(":")
-		p = chron_pos(parts[1], int(parts[2]))
-		lying = true
-	elif l.begins_with("grave:"):
-		p = grave_pos(int(l.substr(6)))
-		lying = true
 	elif l.begins_with("sea:"):
 		p = px(D.BURIAL_POS[int(l.substr(4))])
-		lying = true
-	elif l == "bard":
-		var k := 0
-		for o in st.members:
-			if o["loc"] == "bard" and o["id"] < m["id"]:
-				k += 1
-		p = (chron_tile.get("pos", px(Vector2(1700, 2060))) if st.big_chron else px(Vector2(1700, 2060))) + Vector3(-1.5 + k * 0.5, 0, 2.2 if st.big_chron else 0.0)
 		lying = true
 	else:
 		vis = false
 	return {"pos": p + Vector3(0, TOP, 0), "lying": lying, "vis": vis}
-
-
-func chron_pos(sec: String, i: int) -> Vector3:
-	if st.big_chron:
-		var q: Vector2 = D.CHRON_BIG_POS[sec][i]
-		var sz: Vector2 = chron_tile["size"]
-		return chron_tile["pos"] + Vector3((q.x / D.CHRON_BIG_PX.x - 0.5) * sz.x, 0.03, (q.y / D.CHRON_BIG_PX.y - 0.5) * sz.y)
-	return px(D.CHRON_SMALL_POS[sec][i])
-
-
-func grave_pos(i: int) -> Vector3:
-	if st.big_chron:
-		var q: Vector2 = D.GRAVES_BIG_POS[i]
-		var sz: Vector2 = graves_tile["size"]
-		return graves_tile["pos"] + Vector3((q.x / D.GRAVES_BIG_PX.x - 0.5) * sz.x, 0.03, (q.y / D.GRAVES_BIG_PX.y - 0.5) * sz.y)
-	return px(D.GRAVES_SMALL_POS[i])
 
 
 func _refresh_meeples() -> void:
@@ -462,19 +400,40 @@ func _refresh_spaces() -> void:
 	for sp in D.SPACES:
 		if not st.space_active(sp):
 			continue
-		var arr: Array = st.spaces[sp]
-		var c0 := px(D.SPACE[sp]["pos"])
-		var k := arr.size()
-		var cols := mini(4, k)
-		for i in k:
-			var r := i / 4
-			var c := i % 4
-			var off := Vector3((float(c) - (cols - 1) / 2.0) * 0.24, 0, (float(r) - 0.5) * 0.24)
-			_cube(str(arr[i]), c0 + off + Vector3(0, TOP, 0))
+		var groups := cube_groups(sp)
+		for c in groups:
+			var n: int = groups[c]["n"]
+			var ctr: Vector3 = groups[c]["pos"]
+			for i in n:
+				var r := i / 2
+				var cc := i % 2
+				var off := Vector3((float(cc) - (mini(n, 2) - 1) / 2.0) * 0.2, 0, (float(r) - (ceili(n / 2.0) - 1) / 2.0) * 0.2)
+				_cube(c, ctr + off + Vector3(0, TOP, 0))
 	# sacchetto nero della chiesa
 	var bag := st.bag_members().size()
 	if bag > 0:
 		_label("%d nel sacchetto" % bag, px(D.BAG_POS) + Vector3(0, 0.6, 0), 52)
+
+
+## I cubi di uno spazio, raggruppati per colore (un mucchietto per colore, cliccabile).
+func cube_groups(sp: String) -> Dictionary:
+	var cnt := {}
+	for c in st.spaces[sp]:
+		cnt[c] = int(cnt.get(c, 0)) + 1
+	var order := []
+	for c in ["pk", "br", "gr", "or", "pl"]:
+		if cnt.has(c):
+			order.append(c)
+	var out := {}
+	var c0 := px(D.SPACE[sp]["pos"])
+	for i in order.size():
+		out[order[i]] = {"n": cnt[order[i]], "pos": c0 + Vector3((float(i) - (order.size() - 1) / 2.0) * 0.5, 0, 0)}
+	return out
+
+
+func cube_pos(sp: String, c: String) -> Vector3:
+	var g := cube_groups(sp)
+	return g[c]["pos"] if g.has(c) else px(D.SPACE[sp]["pos"])
 
 
 func _refresh_market() -> void:
@@ -487,45 +446,6 @@ func _refresh_market() -> void:
 	if st.pile.size() > 0:
 		_quad("res://assets/cards/c_back.jpg", px(Vector2(1080, 420)), 0.9, 0.9, false)
 		_label(str(st.pile.size()), px(Vector2(1080, 420)) + Vector3(0, 0.4, 0), 48)
-
-
-func _refresh_farms() -> void:
-	for s in st.n:
-		var pl: Dictionary = st.players[s]
-		var col: Color = D.COLORS[pl["color"]]["color"]
-		# segnatempo
-		var tp := farm_pos(s, D.TIME_POS[int(pl["time"])])
-		_disc(tp + Vector3(0, TOP, 0.12), col, 0.2, 0.12)
-		# grano
-		for g in int(pl["grain"]):
-			_quad("res://assets/tokens/grain.png", farm_pos(s, D.GRAIN_POS[g]), 0.45, 0.62)
-		# merci, monete e cubi sotto la fattoria
-		var row: Vector3 = farm_center[s] + Vector3(-FS / 2.0 + 0.4, 0, FS / 2.0 + 0.55)
-		var x := 0.0
-		var items := []
-		items.append(["coin", int(pl["coins"])])
-		for g in ["horse", "ox", "plow", "wagon", "scroll", "beer", "cocoa", "tea"]:
-			if int(pl["goods"][g]) > 0:
-				items.append([g, int(pl["goods"][g])])
-		for it in items:
-			var p := row + Vector3(x, 0, 0)
-			_quad("res://assets/tokens/%s.png" % it[0], p, 0.62, 0.46 if it[0] != "coin" else 0.62)
-			_label(str(it[1]), p + Vector3(0.28, 0.35, 0.2), 46)
-			x += 0.78
-		var row2: Vector3 = farm_center[s] + Vector3(-FS / 2.0 + 0.4, 0, FS / 2.0 + 1.3)
-		var x2 := 0.0
-		for c in D.CUBES:
-			var k := int(pl["cubes"][c])
-			for j in mini(k, 6):
-				_cube(c, row2 + Vector3(x2 + (j % 3) * 0.19, 0, (j / 3) * 0.19))
-			if k > 0:
-				_label(str(k), row2 + Vector3(x2 + 0.25, 0.4, 0.25), 44)
-				x2 += 0.9
-		# primo giocatore e prossimo primo giocatore
-		if st.first == s:
-			_quad("res://assets/tokens/start.png", farm_center[s] + Vector3(-FS / 2.0 + 0.55, 0.02, -FS / 2.0 + 0.55), 0.85, 0.85)
-		if st.next_owner == s:
-			_quad("res://assets/tokens/next.png", farm_center[s] + Vector3(FS / 2.0 - 0.55, 0.02, -FS / 2.0 + 0.55), 0.7, 0.7)
 
 
 func _refresh_markers() -> void:
@@ -575,27 +495,33 @@ func _refresh_port() -> void:
 
 # ================================================================== bersagli cliccabili
 
-func set_targets(t: Dictionary) -> void:
+## Bersagli cliccabili: chiave -> posizione (anello grande) o [posizione, raggio].
+func set_targets(t: Dictionary, hint := "") -> void:
 	for k in rings:
 		rings[k].queue_free()
 	rings.clear()
-	targets = t
+	targets = {}
 	hover_key = ""
+	hint_key = hint
 	for k in t:
+		var pos: Vector3 = t[k][0] if t[k] is Array else t[k]
+		var rad: float = t[k][1] if t[k] is Array else 0.48
+		targets[k] = pos
 		var r := MeshInstance3D.new()
 		var tm := TorusMesh.new()
-		tm.inner_radius = 0.36
-		tm.outer_radius = 0.48
+		tm.inner_radius = rad * 0.75
+		tm.outer_radius = rad
 		r.mesh = tm
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(1.0, 0.86, 0.35, 0.95)
+		var good: bool = k == hint
+		m.albedo_color = Color(0.55, 1.0, 0.4, 0.95) if good else Color(1.0, 0.86, 0.35, 0.95)
 		m.emission_enabled = true
-		m.emission = Color(1.0, 0.8, 0.3)
+		m.emission = Color(0.4, 1.0, 0.3) if good else Color(1.0, 0.8, 0.3)
 		m.emission_energy_multiplier = 2.2
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		r.material_override = m
-		r.position = t[k] + Vector3(0, 0.1, 0)
+		r.position = pos + Vector3(0, 0.1, 0)
 		add_child(r)
 		rings[k] = r
 
@@ -625,6 +551,11 @@ func sea_pos(node: String) -> Vector3:
 
 func member_pos(id: int) -> Vector3:
 	return meeple_at.get(id, Vector3.ZERO)
+
+
+## Il familiare si vede sul tabellone (non in fattoria o nelle cronache)?
+func member_shown(id: int) -> bool:
+	return meeple_at.has(id) and meeples[id].visible
 
 
 # ================================================================== telecamera
@@ -659,26 +590,9 @@ func set_flat(on: bool) -> void:
 
 func reset_view() -> void:
 	_yaw_t = _near_yaw(0.0)
-	_pitch_t = 56.0
-	_dist_t = 31.0
-	_focus_t = Vector3(0, 0, 4.6)
-
-
-## Inquadra un punto del tavolo (tabellone, fattoria…).
-func look_at_point(p: Vector3, d := 16.0) -> void:
-	_focus_t = Vector3(p.x, 0, p.z)
-	_dist_t = d
-
-
-func chron_view() -> void:
-	if st.big_chron:
-		look_at_point((chron_tile["pos"] + graves_tile["pos"]) / 2.0, 15.0)
-	else:
-		look_at_point(px(Vector2(1300, 1800)), 13.0)
-
-
-func farm_view(s: int) -> void:
-	look_at_point(farm_center[s] + Vector3(0, 0, 0.8), 13.0)
+	_pitch_t = PITCH0
+	_dist_t = DIST0
+	_focus_t = FOCUS0
 
 
 func _near_yaw(a: float) -> float:
@@ -695,7 +609,7 @@ func rotate_view(dy: float) -> void:
 
 
 func zoom(f: float) -> void:
-	_dist_t = clampf(_dist_t * f, 5.0, 60.0)
+	_dist_t = clampf(_dist_t * f, 5.0, 45.0)
 
 
 func _pan_by(rel: Vector2) -> void:
@@ -704,8 +618,8 @@ func _pan_by(rel: Vector2) -> void:
 	var fwd := Vector3(-sin(yw), 0, -cos(yw))
 	var f := dist * (0.0011 if flat else 0.0016)
 	_focus_t += (-right * rel.x + fwd * rel.y) * f
-	_focus_t.x = clampf(_focus_t.x, -24, 26)
-	_focus_t.z = clampf(_focus_t.z, -14, 26)
+	_focus_t.x = clampf(_focus_t.x, -14, 14)
+	_focus_t.z = clampf(_focus_t.z, -14, 16)
 
 
 func _unhandled_input(ev: InputEvent) -> void:
@@ -716,6 +630,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			zoom(1.1)
 		elif mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed and mb.double_click and _pick(mb.position) == "":
+				reset_view()
 			if mb.pressed:
 				_drag = true
 				_drag_moved = 0.0
@@ -757,7 +673,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 			var ks := _touches.keys()
 			var d2: float = (_touches[ks[0]] as Vector2).distance_to(_touches[ks[1]])
 			if _pinch_d > 0.0:
-				_dist_t = clampf(_dist_t * _pinch_d / maxf(1.0, d2), 5.0, 60.0)
+				_dist_t = clampf(_dist_t * _pinch_d / maxf(1.0, d2), 5.0, 45.0)
 			_pinch_d = d2
 			_drag_moved = 99.0
 	elif ev is InputEventMagnifyGesture:

@@ -21,12 +21,16 @@ le immagini vengono dal modulo Tabletop Simulator e non vanno distribuite pubbli
 - **Musica ed effetti**: una danza medievale con liuto, flauto dolce, bordone e tamburello in loop, e
   campana della messa, rintocchi, monete, pedine di legno. Si spengono separatamente (Musica / Effetti,
   nel menu e in partita). Tutto è sintetizzato da `tools/sintetizza_audio.py`, senza campioni esterni.
-- **Tabellone in 3D** sul tavolo, con le fattorie delle famiglie e i meeple del modulo TTS con il numero
-  della generazione. Trascina per ruotare, rotella o pizzico per lo zoom, tasto destro (o
-  Maiusc+trascina) per spostare; i pulsanti < > + − fanno lo stesso, *Villaggio* e *Fattorie*
-  inquadrano il tavolo o le plance. Doppio clic sul riquadro di una famiglia: inquadra la sua fattoria.
-- **Vista 2D** (pulsante 2D o tasto Tab): il tavolo visto dall'alto con una telecamera ortogonale, i
-  familiari sdraiati come sagome; si sposta trascinando e si ingrandisce con la rotella.
+- **Tabellone in 3D** sul tavolo, con i meeple del modulo TTS con il numero della generazione. I cubi si
+  prendono cliccandoli direttamente sulla mappa (un mucchietto per colore, con un anello luminoso).
+  Trascina per ruotare, rotella o pizzico per lo zoom, tasto destro (o Maiusc+trascina) per spostare;
+  doppio clic su un punto vuoto (o tasto Home) per tornare alla vista iniziale.
+- **Plance originali delle famiglie** nel pannello di sinistra: segnatempo sulle nuvole, grano nei campi,
+  familiari nell'aia, cubi influenza sul muro di casa, segnalini del primo giocatore; accanto monete,
+  merci, clienti serviti, carte e nave.
+- **Cronache del villaggio** e tombe anonime con il loro disegno originale nel pannello di destra (il
+  libro del tabellone o la tessera grande con la Locanda o in 5), sopra Locanda e Porto, sotto l'ultima
+  azione; il racconto completo è nel *Diario*.
 - **Regole complete** del gioco base (regolamento italiano): cubi influenza e peste dal sacchetto verde,
   pozzo, tempo della vita e morte con le cronache e le tombe anonime, mietitura, famiglia, artigiani
   (addestrare e produrre o comprare con i cubi), mulino, giorno di mercato con la coda dei clienti,
@@ -46,7 +50,7 @@ le immagini vengono dal modulo Tabletop Simulator e non vanno distribuite pubbli
   valore delle risorse, che cala man mano che cronache e tombe si riempiono. I pesi sono tarati con
   partite IA contro IA (`tests/sim.gd`). Non guarda le carte coperte degli altri.
 - **Aiuti**: la mossa consigliata dall'IA evidenziata in verde (si spegne con *Niente consigli
-  dell'IA* fra le espansioni e opzioni), cronaca degli eventi, diario completo, regole in breve con una
+  dell'IA* fra le espansioni e opzioni), ultima azione sempre in vista, diario completo, regole in breve con una
   scheda per ogni espansione.
 
 ### Semplificazioni
@@ -74,7 +78,7 @@ coprono già ogni gioco con la regola generica `$game`: `firebase/database.rules
   abitanti, mappa del mare, capitani, obiettivi, coordinate sul tabellone.
 - `scripts/core/state.gd` — stato della partita e regole immediate (pagamenti, azioni, mercato, messa,
   morte, punteggio). `engine.gd` — round, turni e decisioni. `ai.gd` — IA.
-- `scripts/ui/` — menu, vista di gioco, tabellone 3D/2D, regole, tema grafico, audio.
+- `scripts/ui/` — menu, vista di gioco, tabellone 3D, plance delle famiglie, cronache, regole, tema grafico, audio.
 - `scripts/net/` — Firebase (REST) e partita online in lockstep.
 - `tools/prepara_asset.py` — ricava tabelloni (con Locanda, Birrificio e Porto sovrapposti come nel
   modulo TTS), carte, segnalini e modelli dal modulo TTS; `tools/sintetizza_audio.py` — musica ed effetti.

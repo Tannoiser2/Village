@@ -1,12 +1,13 @@
 extends Control
-## Vista di gioco: il villaggio in 3D (o in 2D dall'alto) al centro, le famiglie a sinistra, mercato,
-## Locanda, Porto e cronaca a destra, le decisioni in basso. Gli spazi selezionabili si illuminano.
+## Vista di gioco: il villaggio in 3D al centro, le plance delle famiglie a sinistra, mercato, cronache,
+## Locanda, Porto e l'ultima azione a destra, le decisioni in basso. I cubi si prendono cliccandoli sulla
+## mappa; gli altri bersagli selezionabili si illuminano.
 
 const D = preload("res://scripts/data/vl_data.gd")
 const LX := 10.0
-const LW := 380.0
-const RX := 1536.0
-const RW := 374.0
+const LW := 470.0
+const RX := 1546.0
+const RW := 364.0
 const MW := RX - LX - LW - 30.0
 
 var main
@@ -21,10 +22,9 @@ var board: Board3D
 # nodi
 var top_lbl: Label
 var sub_lbl: Label
-var flat_btn: Button
 var rows_box: VBoxContainer
 var side_box: VBoxContainer
-var chron: RichTextLabel
+var last_lbl: RichTextLabel
 var act_panel: PanelContainer
 var act_title: Label
 var act_body: VBoxContainer
@@ -70,7 +70,6 @@ func _ready() -> void:
 	board.target_hovered.connect(_on_hover)
 
 	_build_top()
-	_build_cam()
 	_build_left()
 	_build_right()
 	_build_action()
@@ -147,52 +146,6 @@ func _build_top() -> void:
 		hb.add_child(b)
 
 
-## Comandi della telecamera e passaggio 3D / 2D.
-func _build_cam() -> void:
-	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", UI.paper(true, 10))
-	p.mouse_filter = Control.MOUSE_FILTER_STOP
-	p.position = Vector2(LX + LW + 18, 88)
-	add_child(p)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 4)
-	p.add_child(vb)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 4)
-	vb.add_child(hb)
-	flat_btn = UI.button("2D", 64, 44, 22)
-	flat_btn.tooltip_text = "Passa alla vista 2D dall'alto (e ritorno al 3D)"
-	flat_btn.pressed.connect(_toggle_flat)
-	hb.add_child(flat_btn)
-	for spec in [["<", "Ruota a sinistra (Q)", func(): board.rotate_view(-30)], [">", "Ruota a destra (E)", func(): board.rotate_view(30)],
-			["+", "Avvicina", func(): board.zoom(0.85)], ["-", "Allontana", func(): board.zoom(1.18)]]:
-		var b := UI.button(spec[0], 48, 44, 24)
-		b.tooltip_text = spec[1]
-		b.pressed.connect(spec[2])
-		hb.add_child(b)
-	var hb2 := HBoxContainer.new()
-	hb2.add_theme_constant_override("separation", 4)
-	vb.add_child(hb2)
-	var v1 := UI.button("Villaggio", 128, 40, 18)
-	v1.tooltip_text = "Inquadra tutto il tavolo (Home)"
-	v1.pressed.connect(func(): board.reset_view())
-	hb2.add_child(v1)
-	var v3 := UI.button("Cronache", 124, 40, 18)
-	v3.tooltip_text = "Inquadra le cronache del villaggio e le tombe"
-	v3.pressed.connect(func(): board.chron_view())
-	hb2.add_child(v3)
-	var v2 := UI.button("Fattorie", 120, 40, 18)
-	v2.tooltip_text = "Inquadra le fattorie delle famiglie"
-	v2.pressed.connect(func(): board.look_at_point(Vector3(0, 0, Board3D.HALF + 4.5), 22.0))
-	hb2.add_child(v2)
-
-
-func _toggle_flat() -> void:
-	board.set_flat(not board.flat)
-	flat_btn.text = "3D" if board.flat else "2D"
-	flat_btn.tooltip_text = "Torna alla vista 3D" if board.flat else "Passa alla vista 2D dall'alto"
-
-
 func _build_left() -> void:
 	var sc := ScrollContainer.new()
 	sc.position = Vector2(LX, 8)
@@ -201,7 +154,7 @@ func _build_left() -> void:
 	sc.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(sc)
 	rows_box = VBoxContainer.new()
-	rows_box.add_theme_constant_override("separation", 6)
+	rows_box.add_theme_constant_override("separation", 5)
 	rows_box.custom_minimum_size = Vector2(LW - 8, 0)
 	sc.add_child(rows_box)
 
@@ -212,23 +165,27 @@ func _build_right() -> void:
 	vb.add_theme_constant_override("separation", 6)
 	p.add_child(vb)
 	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(RW - 36, 560)
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vb.add_child(sc)
 	side_box = VBoxContainer.new()
 	side_box.add_theme_constant_override("separation", 6)
 	side_box.custom_minimum_size = Vector2(RW - 44, 0)
 	sc.add_child(side_box)
-	vb.add_child(HSeparator.new())
-	vb.add_child(UI.title("Cronaca", 26))
-	chron = RichTextLabel.new()
-	chron.bbcode_enabled = true
-	chron.scroll_following = true
-	chron.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	chron.add_theme_font_size_override("normal_font_size", 18)
-	chron.add_theme_font_size_override("bold_font_size", 17)
-	vb.add_child(chron)
-	vb.add_child(UI.label("Trascina: ruota (in 2D sposta) · rotella: zoom\nTasto destro o Maiusc+trascina: sposta", 16, UI.INK2, UI.font_italic))
+	# l'ultima azione (tutto il resto è nel Diario)
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", UI.paper(true, 10))
+	vb.add_child(box)
+	last_lbl = RichTextLabel.new()
+	last_lbl.bbcode_enabled = true
+	last_lbl.fit_content = true
+	last_lbl.scroll_active = false
+	last_lbl.custom_minimum_size = Vector2(RW - 60, 58)
+	last_lbl.add_theme_font_size_override("normal_font_size", 18)
+	last_lbl.add_theme_font_override("normal_font", UI.font_body)
+	last_lbl.add_theme_color_override("default_color", UI.INK)
+	last_lbl.tooltip_text = "L'ultima azione: il racconto completo è nel Diario"
+	box.add_child(last_lbl)
 
 
 func _build_action() -> void:
@@ -329,38 +286,55 @@ func _refresh_rows() -> void:
 	for c in rows_box.get_children():
 		rows_box.remove_child(c)
 		c.queue_free()
+	var side := clampf(floorf((1060.0 - (st.n - 1) * 5.0) / st.n) - 26.0, 170.0, 250.0)
 	for s in st.n:
-		rows_box.add_child(_player_row(s))
+		rows_box.add_child(_player_row(s, side))
 
 
-func _player_row(s: int) -> Control:
+## Una famiglia: la sua plancia originale (cubi, grano, familiari, segnatempo) e accanto il resto.
+func _player_row(s: int, side: float) -> Control:
 	var pl: Dictionary = st.players[s]
 	var col: Color = UI.ink_of(pl["color"])
 	var box := PanelContainer.new()
 	var active: bool = engine.current == s and not engine.game_over
-	box.add_theme_stylebox_override("panel", UI.paper(active, 14))
+	var sb := UI.paper(active, 8)
+	box.add_theme_stylebox_override("panel", sb)
 	box.mouse_filter = Control.MOUSE_FILTER_STOP
-	box.gui_input.connect(func(ev):
-		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT and ev.double_click:
-			board.farm_view(s))
-	box.tooltip_text = "Doppio clic: inquadra la fattoria"
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 2)
-	box.add_child(vb)
 	var see := _can_see(s)
-	# intestazione
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 6)
-	vb.add_child(hb)
-	hb.add_child(UI.icon_rect(UI.tex("res://assets/ui/meeple_%s.png" % D.COLORS[pl["color"]]["key"]), Vector2(40, 40)))
-	var nv := VBoxContainer.new()
-	nv.add_theme_constant_override("separation", -6)
-	nv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hb.add_child(nv)
-	var nm := UI.title(pl["name"] + ("  (IA)" if pl["ai"] else ""), 24, col)
+	hb.add_theme_constant_override("separation", 8)
+	box.add_child(hb)
+	var fp := FarmPanel.new()
+	fp.setup(st, s, side)
+	if active:
+		var fr := Panel.new()
+		fr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		fr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var fsb := StyleBoxFlat.new()
+		fsb.bg_color = Color(0, 0, 0, 0)
+		fsb.border_color = UI.GOLD
+		fsb.set_border_width_all(4)
+		fr.add_theme_stylebox_override("panel", fsb)
+		fp.add_child(fr)
+	hb.add_child(fp)
+	var iw := LW - side - 40.0
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 3)
+	vb.custom_minimum_size = Vector2(iw, 0)
+	hb.add_child(vb)
+	# nome e prestigio
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 4)
+	vb.add_child(top)
+	var nm := UI.title(pl["name"] + (" (IA)" if pl["ai"] else ""), 23, col)
 	nm.clip_text = true
-	nm.custom_minimum_size = Vector2(170, 0)
-	nv.add_child(nm)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nm.custom_minimum_size = Vector2(60, 0)
+	top.add_child(nm)
+	var ppl := UI.label("%d" % pl["pp"], 30, UI.INK, UI.font_heavy)
+	ppl.tooltip_text = "Punti prestigio sul percorso (i punti finali si aggiungono alla fine)"
+	ppl.mouse_filter = Control.MOUSE_FILTER_STOP
+	top.add_child(ppl)
 	var tags := []
 	if st.first == s:
 		tags.append("primo giocatore")
@@ -368,110 +342,75 @@ func _player_row(s: int) -> Control:
 		tags.append("prossimo primo")
 	if int(pl["deaths"]) > 0:
 		tags.append("un familiare sta per morire")
-	nv.add_child(UI.label(" · ".join(tags), 16, UI.BRICK, UI.font_bold))
-	var ppv := VBoxContainer.new()
-	ppv.add_theme_constant_override("separation", -8)
-	var ppl := UI.label("%d" % pl["pp"], 32, UI.INK, UI.font_heavy)
-	ppl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	ppv.add_child(ppl)
-	ppv.add_child(UI.label("prestigio", 14, UI.INK2, UI.font_italic))
-	ppv.tooltip_text = "Punti prestigio sul percorso (i punti finali si aggiungono alla fine)"
-	hb.add_child(ppv)
-	# tempo della vita, monete, grano
-	var tr := HBoxContainer.new()
-	tr.add_theme_constant_override("separation", 2)
-	vb.add_child(tr)
-	for i in D.TIME_STEPS:
-		var cell := Panel.new()
-		cell.custom_minimum_size = Vector2(14, 14)
-		var on: bool = i == int(pl["time"])
-		cell.add_theme_stylebox_override("panel", UI.panel_style(UI.pcolor(pl["color"]) if on else Color(0.42, 0.29, 0.17, 0.15), UI.INK if on else Color(0.42, 0.29, 0.17, 0.5), 2 if on else 1, 7))
-		cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tr.add_child(cell)
-	var bridge := UI.label("ponte", 14, UI.INK2, UI.font_italic)
-	tr.add_child(bridge)
-	tr.tooltip_text = "Tempo della vita: %d passi al ponte. Quando lo attraversa muore un familiare." % (D.TIME_STEPS - int(pl["time"]))
-	tr.mouse_filter = Control.MOUSE_FILTER_STOP
-	var sp0 := Control.new()
-	sp0.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tr.add_child(sp0)
-	tr.add_child(UI.counter(UI.token("coin"), pl["coins"], 22))
-	tr.add_child(UI.counter(UI.token("grain"), pl["grain"], 22))
-	# cubi e merci
+	if not tags.is_empty():
+		vb.add_child(UI.wrap(" · ".join(tags), 15, iw, UI.BRICK, UI.font_bold))
+	# monete e merci
 	var rr := HFlowContainer.new()
 	rr.add_theme_constant_override("h_separation", 6)
-	rr.add_theme_constant_override("v_separation", 2)
+	rr.add_theme_constant_override("v_separation", 0)
 	vb.add_child(rr)
-	for c in D.CUBES:
-		var ch := HBoxContainer.new()
-		ch.add_theme_constant_override("separation", 2)
-		ch.add_child(UI.cube_icon(c, 18))
-		ch.add_child(UI.label(str(pl["cubes"][c]), 19, UI.INK, UI.font_bold))
-		ch.tooltip_text = "Cubi %s (%s)" % [D.cube_name(c), D.CUBE[c]["long"]]
-		ch.mouse_filter = Control.MOUSE_FILTER_STOP
-		rr.add_child(ch)
+	var cc := UI.counter(UI.token("coin"), pl["coins"], 26)
+	cc.tooltip_text = "Monete"
+	cc.mouse_filter = Control.MOUSE_FILTER_STOP
+	rr.add_child(cc)
 	for g in D.GOODS:
 		if int(pl["goods"][g]) > 0:
-			var gc := UI.counter(UI.token(g), pl["goods"][g], 22)
+			var gc := UI.counter(UI.token(g), pl["goods"][g], 26)
 			gc.tooltip_text = D.good_name(g, int(pl["goods"][g]))
 			gc.mouse_filter = Control.MOUSE_FILTER_STOP
 			rr.add_child(gc)
-	# famiglia
-	var fam := {}
+	# clienti serviti, famiglia da nascere, sacchetto, città
 	var pool := 0
 	var bag := 0
 	for m in st.members:
 		if m["owner"] != s:
 			continue
-		if m["loc"] == "farm":
-			fam[m["gen"]] = int(fam.get(m["gen"], 0)) + 1
-		elif m["loc"] == "pool":
+		if m["loc"] == "pool":
 			pool += 1
 		elif m["loc"] == "bag":
 			bag += 1
-	var ft := []
-	for g in [1, 2, 3, 4]:
-		for k in int(fam.get(g, 0)):
-			ft.append(str(g))
-	var fl := UI.label("In fattoria: %s · da nascere %d%s · cronache %d" % [" ".join(ft) if not ft.is_empty() else "nessuno", pool, (" · nel sacchetto %d" % bag) if bag > 0 else "", st.chron_count(s)], 17, UI.INK2)
-	fl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	fl.custom_minimum_size = Vector2(LW - 40, 0)
-	vb.add_child(fl)
-	# clienti, carte, obiettivi, nave
-	var extra := []
 	var cust: Array = pl["customers"]
+	var info := []
 	if see:
 		var cp := 0
 		for ci in cust:
 			cp += int(D.CUSTOMERS[ci]["pp"])
-		extra.append("clienti %d (%d punti)" % [cust.size(), cp])
+		info.append("clienti %d (%d punti)" % [cust.size(), cp])
 	else:
-		extra.append("clienti %d" % cust.size())
-	if st.inn:
-		extra.append("abitanti %d" % pl["hand"].size())
+		info.append("clienti %d" % cust.size())
+	info.append("da nascere %d" % pool)
+	if bag > 0:
+		info.append("nel sacchetto %d" % bag)
 	if not st.port:
-		extra.append("città %d" % pl["cities"].size())
-	vb.add_child(UI.label(" · ".join(extra), 17, UI.INK2))
-	if see and not pl["hand"].is_empty():
-		var cf := HFlowContainer.new()
-		cf.add_theme_constant_override("h_separation", 3)
+		info.append("città %d" % pl["cities"].size())
+	info.append("cronache %d" % st.chron_count(s))
+	vb.add_child(UI.wrap(" · ".join(info), 15, iw, UI.INK2))
+	# carte abitante e obiettivi di vita (miniature, testo nel suggerimento)
+	var cf := HFlowContainer.new()
+	cf.add_theme_constant_override("h_separation", 3)
+	cf.add_theme_constant_override("v_separation", 3)
+	if see:
 		for cid in pl["hand"]:
-			var t := UI.icon_rect(UI.villager(cid), Vector2(40, 63))
+			var t := UI.icon_rect(UI.villager(cid), Vector2(30, 48))
 			t.mouse_filter = Control.MOUSE_FILTER_STOP
 			t.tooltip_text = "%s (%s): %s" % [D.VILLAGERS[cid]["name"], _kind_text(D.VILLAGERS[cid]["kind"]), D.VILLAGERS[cid]["text"]]
 			cf.add_child(t)
+		if st.goals_on:
+			for g in pl["goals"]:
+				var gt := UI.icon_rect(UI.goal_tex(g), Vector2(30, 48))
+				gt.mouse_filter = Control.MOUSE_FILTER_STOP
+				gt.tooltip_text = "Obiettivo di vita · " + Describe.goal_text(g)
+				cf.add_child(gt)
+	else:
+		if st.inn and pl["hand"].size() > 0:
+			cf.add_child(UI.label("abitanti %d" % pl["hand"].size(), 15, UI.INK2))
+		if st.goals_on and pl["goals"].size() > 0:
+			cf.add_child(UI.label("obiettivi segreti %d" % pl["goals"].size(), 15, UI.INK2, UI.font_italic))
+	if cf.get_child_count() > 0:
 		vb.add_child(cf)
 	if st.goals_on:
-		if see:
-			for g in pl["goals"]:
-				var gl := UI.label("· " + Describe.goal_text(g), 15, UI.INK2, UI.font_italic)
-				gl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-				gl.custom_minimum_size = Vector2(LW - 40, 0)
-				vb.add_child(gl)
-		elif pl["goals"].size() > 0:
-			vb.add_child(UI.label("obiettivi di vita segreti: %d" % pl["goals"].size(), 15, UI.INK2, UI.font_italic))
 		for g in pl["goals_done"]:
-			vb.add_child(UI.label("Fatto: " + st.goal_def(g)["name"], 15, UI.GREEN, UI.font_bold))
+			vb.add_child(UI.wrap("Fatto: " + st.goal_def(g)["name"], 15, iw, UI.GREEN, UI.font_bold))
 	if st.port:
 		var sh: Dictionary = pl["ship"]
 		var hold := []
@@ -479,11 +418,8 @@ func _player_row(s: int) -> Control:
 			var kind := str(it).get_slice(":", 0)
 			hold.append("familiare" if kind == "member" else ("forziere" if kind == "chest" else ("grano" if kind == "grain" else D.good_name(kind))))
 		var where: String = "in porto" if sh["at"] == "P" else D.SEA[sh["at"]].get("name", "in mare")
-		var ct := "nave %s%s%s" % [where, (" · capitano da %d" % int(D.CAPTAINS[int(sh["cap"])]["cost"])) if int(sh["cap"]) >= 0 and int(sh["cap"]) < 100 else (" · Ammiraglio" if int(sh["cap"]) == 100 else ""), (" · stiva: " + ", ".join(hold)) if not hold.is_empty() else ""]
-		var sl := UI.label(ct, 16, UI.INK2, UI.font_italic)
-		sl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		sl.custom_minimum_size = Vector2(LW - 40, 0)
-		vb.add_child(sl)
+		var ct := "Nave %s%s%s" % [where, (" · capitano da %d" % int(D.CAPTAINS[int(sh["cap"])]["cost"])) if int(sh["cap"]) >= 0 and int(sh["cap"]) < 100 else (" · Ammiraglio" if int(sh["cap"]) == 100 else ""), (" · stiva: " + ", ".join(hold)) if not hold.is_empty() else ""]
+		vb.add_child(UI.wrap(ct, 15, iw, UI.INK2, UI.font_italic))
 	return box
 
 
@@ -515,33 +451,10 @@ func _refresh_side() -> void:
 		if st.queue[i] >= 0:
 			qn += 1
 	side_box.add_child(UI.label("in coda %d · nella pila %d" % [qn, st.pile.size()], 17, UI.INK2, UI.font_italic))
-	side_box.add_child(UI.title("Cronache", 26))
-	for sec in D.SECTIONS:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 3)
-		var nm := UI.label(D.SECTION[sec]["name"], 17, D.SECTION[sec]["color"].darkened(0.2), UI.font_bold)
-		nm.custom_minimum_size = Vector2(196, 0)
-		row.add_child(nm)
-		for v in st.chron[sec]:
-			row.add_child(_slot_box(int(v)))
-		side_box.add_child(row)
-	var gr := HBoxContainer.new()
-	gr.add_theme_constant_override("separation", 3)
-	var gl := UI.label("Tombe anonime", 17, UI.INK2, UI.font_bold)
-	gl.custom_minimum_size = Vector2(196, 0)
-	gr.add_child(gl)
-	for v in st.graves:
-		gr.add_child(_slot_box(int(v)))
-	side_box.add_child(gr)
-	if st.port:
-		var br := HBoxContainer.new()
-		br.add_theme_constant_override("separation", 3)
-		var bl := UI.label("Sepolture in mare", 17, UI.INK2, UI.font_bold)
-		bl.custom_minimum_size = Vector2(196, 0)
-		br.add_child(bl)
-		for v in st.burials:
-			br.add_child(_slot_box(int(v)))
-		side_box.add_child(br)
+	side_box.add_child(UI.title("Cronache del villaggio", 26))
+	var cp := ChronPanel.new()
+	cp.setup(st, RW - 48)
+	side_box.add_child(cp)
 	if st.inn:
 		side_box.add_child(UI.title("Locanda", 26))
 		var lf := HBoxContainer.new()
@@ -576,22 +489,6 @@ func _refresh_side() -> void:
 			side_box.add_child(UI.wrap("Missioni: " + ", ".join(mi), 16, RW - 50, UI.INK2))
 
 
-## Casella delle cronache: libera, coperta (meno giocatori) o occupata (colore della famiglia).
-func _slot_box(v: int) -> Panel:
-	var p := Panel.new()
-	p.custom_minimum_size = Vector2(18, 18)
-	var col := Color(0.42, 0.29, 0.17, 0.12)
-	var border := Color(0.42, 0.29, 0.17, 0.6)
-	if v == -2:
-		col = Color(0.2, 0.15, 0.1, 0.55)
-	elif v >= 0:
-		col = UI.pcolor(st.players[v]["color"])
-		border = UI.INK
-	p.add_theme_stylebox_override("panel", UI.panel_style(col, border, 1, 9))
-	p.tooltip_text = "coperta" if v == -2 else ("libera" if v == -1 else st.pname(v))
-	return p
-
-
 func _idle_message() -> void:
 	_clear_body()
 	if engine.game_over:
@@ -610,11 +507,26 @@ func _idle_message() -> void:
 	_place_action.call_deferred()
 
 
-func _on_log(t: String) -> void:
-	var line := t
-	if t.begins_with("—"):
-		line = "\n[b][color=#8a2a14]%s[/color][/b]" % t
-	chron.append_text(line + "\n")
+## L'ultima riga del racconto (con la precedente, se è corta).
+func _show_last() -> void:
+	var lines: Array = engine.log_lines
+	var out := []
+	var i := lines.size() - 1
+	while i >= 0 and out.size() < 2:
+		var l := str(lines[i])
+		if l.strip_edges() != "":
+			if l.begins_with("—"):
+				out.push_front("[b][color=#8a2a14]%s[/color][/b]" % l)
+				break
+			out.push_front(l)
+		i -= 1
+	if out.size() == 2:
+		out[0] = "[color=#6b4a2b]%s[/color]" % out[0]
+	last_lbl.text = "\n".join(out)
+
+
+func _on_log(_t: String) -> void:
+	_show_last()
 	if pending.is_empty():
 		_idle_message()
 
@@ -769,7 +681,7 @@ func _turn_ui() -> void:
 	if wiz.get("step", "") == "sail":
 		_sail_ui()
 		return
-	# scelta del cubo: spazi con i loro cubi
+	# scelta del cubo: si clicca il mucchietto del colore voluto sulla mappa
 	var targets := {}
 	var spaces := {}
 	for m in moves:
@@ -778,51 +690,23 @@ func _turn_ui() -> void:
 			if not spaces.has(src["sp"]):
 				spaces[src["sp"]] = {}
 			spaces[src["sp"]][src["c"]] = true
-	var grid := VBoxContainer.new()
-	grid.add_theme_constant_override("separation", 4)
-	act_body.add_child(grid)
-	var row := HFlowContainer.new()
-	row.custom_minimum_size = Vector2(MW - 60, 0)
-	row.add_theme_constant_override("h_separation", 14)
-	row.add_theme_constant_override("v_separation", 6)
-	grid.add_child(row)
-	for sp in D.SPACES:
-		if not spaces.has(sp):
-			continue
-		var cell := HBoxContainer.new()
-		cell.add_theme_constant_override("separation", 3)
-		var hl: bool = not hm.is_empty() and hm["src"].get("sp", "") == sp
-		var nm := UI.label(D.SPACE[sp]["name"] + ":", 20, UI.GREEN if hl else UI.INK, UI.font_bold)
-		cell.add_child(nm)
-		var cnt := {}
-		for c in st.spaces[sp]:
-			cnt[c] = int(cnt.get(c, 0)) + 1
-		for c in ["pk", "br", "gr", "or", "pl"]:
-			if not spaces[sp].has(c):
-				continue
-			var b := Button.new()
-			b.custom_minimum_size = Vector2(46, 40)
-			b.text = str(cnt[c]) if cnt[c] > 1 else ""
-			b.tooltip_text = "Prendi un cubo %s da %s" % [D.cube_name(c), D.SPACE[sp]["name"]] + (" (peste: perdi 2 tempi)" if c == "pl" else "")
-			var col: Color = D.CUBE[c]["color"]
-			var sb := UI.panel_style(col, UI.GOLD if (hl and hm["src"].get("c", "") == c) else col.darkened(0.5), 4 if (hl and hm["src"].get("c", "") == c) else 2, 5)
-			b.add_theme_stylebox_override("normal", sb)
-			b.add_theme_stylebox_override("hover", UI.panel_style(col.lightened(0.2), UI.GOLD, 3, 5))
-			b.add_theme_stylebox_override("pressed", sb)
-			var src := {"t": "space", "sp": sp, "c": c}
-			b.pressed.connect(func(): _pick_src(src))
-			cell.add_child(b)
-		row.add_child(cell)
-		var key: String = "sp:" + sp
-		targets[key] = board.space_pos(sp)
-		var only_c: String = spaces[sp].keys()[0] if spaces[sp].size() == 1 else ""
-		target_map[key] = func():
-			if only_c != "":
-				_pick_src({"t": "space", "sp": sp, "c": only_c})
-			else:
-				act_title.text = "%s: scegli quale cubo prendere." % D.SPACE[sp]["name"]
-		target_info[key] = "%s: %s" % [D.SPACE[sp]["name"], ", ".join(st.spaces[sp].map(func(c): return D.cube_name(c)))]
-	board.set_targets(targets)
+	var hkey := ""
+	for sp in spaces:
+		var groups := board.cube_groups(sp)
+		for c in spaces[sp]:
+			var key: String = "cube:%s:%s" % [sp, c]
+			var n: int = groups[c]["n"] if groups.has(c) else 1
+			targets[key] = [board.cube_pos(sp, c), 0.24 if n <= 2 else 0.3]
+			var src2 := {"t": "space", "sp": sp, "c": c}
+			target_map[key] = func(): _pick_src(src2)
+			target_info[key] = "%s: prendi un cubo %s%s" % [D.SPACE[sp]["name"], D.cube_name(c), " (peste: perdi 2 tempi)" if c == "pl" else ""]
+			if not hm.is_empty() and hm["src"].get("t", "") == "space" and hm["src"]["sp"] == sp and hm["src"]["c"] == c:
+				hkey = key
+	board.set_targets(targets, hkey)
+	if not spaces.is_empty():
+		act_title.text = _who() + ("Ultima azione: clicca un cubo sulla mappa" if req.get("final", false) else "Il tuo turno: clicca sulla mappa il cubo che vuoi prendere")
+		if hkey != "":
+			act_body.add_child(UI.label("Consiglio dell'IA: %s (anello verde)." % target_info[hkey], 17, UI.GREEN, UI.font_italic))
 	# pozzo, Vecchio saggio, azione gratuita, carte
 	var f := _flow()
 	var wells := {}
@@ -1297,7 +1181,8 @@ func _member_ui(ids: Array, map: Callable) -> void:
 	for id in ids:
 		var id2: int = id
 		f.add_child(_btn("%s (%s)" % [Describe.member(st, id), st.loc_name(st.members[id]["loc"])], func(): _provide(map.call(id2)), hint.get("r", -1) == id))
-		targets["m:%d" % id] = board.member_pos(id)
+		if board.member_shown(id):
+			targets["m:%d" % id] = board.member_pos(id)
 		target_map["m:%d" % id] = func(): _provide(map.call(id2))
 		target_info["m:%d" % id] = Describe.member(st, id)
 	board.set_targets(targets)
@@ -1446,7 +1331,8 @@ func _death_ui() -> void:
 					free = true
 			dest = "cronache (%s)" % D.SECTION[sec]["name"] if free else ("sepoltura in mare" if st.port and (m["loc"] == "ship" or str(m["loc"]).begins_with("mission:")) else "tomba anonima")
 		f.add_child(_btn("Familiare %d (%s) » %s" % [m["gen"], st.loc_name(m["loc"]), "cronache (Bardo)" if sel["bard"] else dest], func(): _provide({"m": id2, "bard": sel["bard"]}), hr is Dictionary and int(hr.get("m", -1)) == id))
-		targets["m:%d" % id] = board.member_pos(id)
+		if board.member_shown(id):
+			targets["m:%d" % id] = board.member_pos(id)
 		target_map["m:%d" % id] = func(): _provide({"m": id2, "bard": sel["bard"]})
 		target_info["m:%d" % id] = "Familiare %d (%s)" % [m["gen"], st.loc_name(m["loc"])]
 	board.set_targets(targets)
@@ -1698,11 +1584,8 @@ func _show_log() -> void:
 
 func _unhandled_input(ev: InputEvent) -> void:
 	if ev is InputEventKey and ev.pressed:
-		match ev.keycode:
-			KEY_Q: board.rotate_view(-30)
-			KEY_E: board.rotate_view(30)
-			KEY_HOME: board.reset_view()
-			KEY_TAB: _toggle_flat()
+		if ev.keycode == KEY_HOME:
+			board.reset_view()
 
 
 # =================================================================== online
@@ -1710,7 +1593,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 func _build_online_label() -> void:
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", UI.plank("meadow", 12))
-	p.position = Vector2(LX + LW + 400, 92)
+	p.position = Vector2(LX + LW + 20, 92)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	online_lbl = UI.label("", 22, UI.LIGHT, UI.font_bold)
 	p.add_child(online_lbl)
